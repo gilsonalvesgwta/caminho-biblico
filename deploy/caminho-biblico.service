@@ -1,0 +1,17 @@
+# Alternativa ao Docker: rodar com systemd (Node 22.13+ instalado na VPS)
+# sudo cp deploy/caminho-biblico.service /etc/systemd/system/ && sudo systemctl enable --now caminho-biblico
+[Unit]
+Description=O Caminho Biblico do Dinheiro - app e painel
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/caminho-biblico
+EnvironmentFile=/opt/caminho-biblico/.env
+ExecStart=/usr/bin/node --no-warnings server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

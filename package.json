@@ -1,0 +1,15 @@
+{
+  "name": "caminho-biblico-app",
+  "version": "1.0.0",
+  "description": "Plataforma de O Caminho Bíblico do Dinheiro: Desafio de 7 Dias — app do aluno (PWA), painel administrativo e integração Greenn.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --no-warnings server.js",
+    "dev": "node --no-warnings --watch server.js",
+    "create-admin": "node --no-warnings scripts/create-admin.js",
+    "test-webhook": "node --no-warnings scripts/test-webhook.js",
+    "backup": "node --no-warnings scripts/backup.js"
+  }
+}

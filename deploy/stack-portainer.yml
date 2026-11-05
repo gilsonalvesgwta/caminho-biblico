@@ -1,0 +1,52 @@
+# Stack para a VPS Wtatechor3 (Docker Swarm + Traefik + Portainer)
+# Antes: construir a imagem na VPS ->  docker build -t caminho-biblico:1.0.0 /opt/caminho-biblico
+# Depois: Portainer > Stacks > Add stack > nome "caminho" > colar este arquivo > Deploy
+
+version: "3.8"
+
+services:
+  app:
+    image: caminho-biblico:1.0.0
+    environment:
+      - NODE_ENV=production
+      - APP_URL=https://caminho.wtatech.com.br
+      - PORT=3100
+      - DATA_DIR=/app/data
+      - TRUST_PROXY=true
+      - COOKIE_SECURE=true
+      - TZ=America/Sao_Paulo
+      # Primeiro administrador (só é criado se ainda não existir nenhum)
+      - ADMIN_EMAIL=TROQUE@seuemail.com
+      - ADMIN_PASSWORD=TROQUE-POR-UMA-SENHA-FORTE
+      - ADMIN_NAME=Gilson
+    volumes:
+      - caminho_data:/app/data
+    networks:
+      - Wtatechor3Net
+    deploy:
+      replicas: 1            # SQLite: manter 1 réplica
+      update_config:
+        order: stop-first    # nunca duas instâncias no mesmo banco
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          memory: 512M
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=Wtatechor3Net
+        - traefik.http.routers.caminho.rule=Host(`caminho.wtatech.com.br`)
+        - traefik.http.routers.caminho.entrypoints=websecure
+        - traefik.http.routers.caminho.tls=true
+        - traefik.http.routers.caminho.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.caminho.priority=10
+        - traefik.http.services.caminho.loadbalancer.server.port=3100
+
+volumes:
+  caminho_data:
+    external: false
+
+networks:
+  Wtatechor3Net:
+    external: true
