@@ -15,10 +15,10 @@ if (fs.existsSync(envFile)) {
 
 const env = process.env;
 export const config = {
-  port: Number(env.PORT || 3000),
+  port: Number(env.PORT || 3100),
   host: env.HOST || '0.0.0.0',
   dataDir: path.resolve(env.DATA_DIR || './data'),
-  appUrl: (env.APP_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  appUrl: (env.APP_URL || 'http://localhost:3100').replace(/\/$/, ''),
   cookieSecure: env.COOKIE_SECURE ? env.COOKIE_SECURE === 'true' : (env.APP_URL || '').startsWith('https'),
   sessionDays: Number(env.SESSION_DAYS || 60),
   adminSessionHours: Number(env.ADMIN_SESSION_HOURS || 12),

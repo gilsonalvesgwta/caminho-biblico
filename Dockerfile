@@ -1,5 +1,5 @@
 FROM node:22-alpine
-ENV NODE_ENV=production TZ=America/Sao_Paulo
+ENV NODE_ENV=production TZ=America/Sao_Paulo PORT=3100 DATA_DIR=/app/data
 RUN apk add --no-cache tzdata
 WORKDIR /app
 COPY --chown=node:node . .
