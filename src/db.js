@@ -267,6 +267,13 @@ const migrations = [
   CREATE INDEX idx_outbox ON outbox(status, next_attempt_at);
   CREATE INDEX idx_sessions_exp ON sessions(expires_at);
   `,
+  // 2 — nome e telefone do comprador na própria venda (aparecem antes do pagamento)
+  `
+  ALTER TABLE sales ADD COLUMN client_name TEXT;
+  ALTER TABLE sales ADD COLUMN client_phone TEXT;
+  UPDATE sales SET client_name = (SELECT json_extract(w.payload, '$.client.name') FROM webhook_events w WHERE json_extract(w.payload, '$.sale.id') = sales.sale_id ORDER BY w.id DESC LIMIT 1),
+                   client_phone = (SELECT json_extract(w.payload, '$.client.cellphone') FROM webhook_events w WHERE json_extract(w.payload, '$.sale.id') = sales.sale_id ORDER BY w.id DESC LIMIT 1);
+  `,
 ];
 
 export function migrate() {

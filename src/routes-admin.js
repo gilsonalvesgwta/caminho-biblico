@@ -67,7 +67,7 @@ export function registerAdminRoutes(r) {
     const abandoned = db.get('SELECT COUNT(*) c FROM leads WHERE created_at >= ? AND converted = 0', since).c;
     const whIssues = db.get("SELECT COUNT(*) c FROM webhook_events WHERE outcome IN ('error','unmapped') AND received_at >= ?", sinceDays(7)).c;
     const lastWebhook = db.get('SELECT received_at, outcome FROM webhook_events ORDER BY id DESC LIMIT 1');
-    const recentSales = db.all(`SELECT s.*, u.name FROM sales s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.updated_at DESC LIMIT 8`);
+    const recentSales = db.all(`SELECT s.*, COALESCE(u.name, s.client_name) name FROM sales s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.updated_at DESC LIMIT 8`);
     return {
       days, revenue: paid.v, sales: paid.c, ticket: paid.c ? paid.v / paid.c : 0, refunds: refunds.c, refundValue: refunds.v,
       refundRate: paid.c ? refunds.c / paid.c : 0, pending, series, byProduct, students, newStudents, active7, funnel, paz, live, hot, phases,
@@ -194,11 +194,11 @@ export function registerAdminRoutes(r) {
     const q = req.query; const pg = page(q);
     const where = ['1=1']; const args = [];
     if (q.status) { where.push('s.status = ?'); args.push(q.status); }
-    if (q.q) { where.push('(s.email LIKE ? OR s.sale_id LIKE ? OR u.name LIKE ? OR s.product_name LIKE ?)'); args.push(like(q.q), like(q.q), like(q.q), like(q.q)); }
+    if (q.q) { where.push('(s.email LIKE ? OR s.sale_id LIKE ? OR u.name LIKE ? OR s.client_name LIKE ? OR s.client_phone LIKE ? OR s.product_name LIKE ?)'); args.push(like(q.q), like(q.q), like(q.q), like(q.q), like(q.q), like(q.q)); }
     if (q.from) { where.push('s.created_at >= ?'); args.push(q.from); }
     const w = where.join(' AND ');
     const total = db.get(`SELECT COUNT(*) c, COALESCE(SUM(CASE WHEN s.status='paid' THEN s.amount END),0) v FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE ${w}`, ...args);
-    const rows = db.all(`SELECT s.*, u.name FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE ${w} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`, ...args, pg.limit, pg.offset);
+    const rows = db.all(`SELECT s.*, COALESCE(u.name, s.client_name) name, COALESCE(u.phone, s.client_phone) phone FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE ${w} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`, ...args, pg.limit, pg.offset);
     return { total: total.c, paidValue: total.v, rows, ...pg };
   });
 

@@ -46,6 +46,10 @@ try {
   const hook = s.webhookUrl.replace(/^https?:\/\/[^/]+/, '');
   const venda = { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9001, amount: 97, method: 'PIX' }, client: { name: 'Maria Teste', email: 'Maria@Teste.com', cellphone: '+5511999990000' } };
   assert.equal((await call('x', 'POST', hook + 'errado', venda)).status, 401); step('webhook recusa token inválido');
+  assert.equal((await call('x', 'POST', hook, { ...venda, currentStatus: 'waiting_payment', sale: { id: 9000, amount: 97, method: 'PIX' } })).json.outcome, 'ok');
+  const pend = (await call('admin', 'GET', '/api/admin/sales?status=waiting_payment')).json.rows[0];
+  assert.equal(pend.name, 'Maria Teste'); assert.equal(pend.phone, '+5511999990000');
+  assert.equal((await call('admin', 'GET', '/api/admin/students')).json.total, 0); step('Pix gerado e não pago: aparece com nome e telefone, sem liberar acesso');
   assert.equal((await call('x', 'POST', hook, venda)).json.outcome, 'ok');
   assert.equal((await call('x', 'POST', hook, venda)).json.outcome, 'ok'); step('webhook de venda paga (idempotente)');
 

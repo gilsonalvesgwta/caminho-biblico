@@ -34,11 +34,11 @@ export async function processGreennEvent(p) {
   const metas = Object.fromEntries((p.saleMetas || []).map((m) => [m.meta_key, m.meta_value]));
   if (saleId) {
     const t = now();
-    db.run(`INSERT INTO sales (provider, sale_id, provider_product_id, product_name, email, status, amount, method, installments, coupon, kind, utm_source, utm_medium, utm_campaign, utm_content, paid_at, created_at, updated_at)
-      VALUES ('greenn',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    db.run(`INSERT INTO sales (provider, sale_id, provider_product_id, product_name, email, client_name, client_phone, status, amount, method, installments, coupon, kind, utm_source, utm_medium, utm_campaign, utm_content, paid_at, created_at, updated_at)
+      VALUES ('greenn',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(provider, sale_id, provider_product_id) DO UPDATE SET status = excluded.status, amount = CASE WHEN excluded.amount > 0 THEN excluded.amount ELSE sales.amount END,
-        method = COALESCE(excluded.method, sales.method), paid_at = COALESCE(sales.paid_at, excluded.paid_at), updated_at = excluded.updated_at`,
-      saleId, gpid, p.product?.name || null, email, status, Number(p.sale?.amount ?? p.contract?.amount ?? p.product?.amount ?? 0) || 0,
+        method = COALESCE(excluded.method, sales.method), client_name = COALESCE(excluded.client_name, sales.client_name), client_phone = COALESCE(excluded.client_phone, sales.client_phone), paid_at = COALESCE(sales.paid_at, excluded.paid_at), updated_at = excluded.updated_at`,
+      saleId, gpid, p.product?.name || null, email, client.name || null, client.cellphone || null, status, Number(p.sale?.amount ?? p.contract?.amount ?? p.product?.amount ?? 0) || 0,
       p.sale?.method || null, p.sale?.installments || null, p.sale?.coupon?.name || null, type,
       metas.utm_source || null, metas.utm_medium || null, metas.utm_campaign || null, metas.utm_content || null,
       status === 'paid' ? t : null, p.sale?.created_at ? toIso(p.sale.created_at) : t, t);
