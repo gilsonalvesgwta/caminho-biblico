@@ -81,6 +81,7 @@ function smtpSession(socket) {
   let waiter = null;
   const onData = (d) => {
     buf += d.toString('utf8');
+    if (!waiter) return; // guarda até alguém pedir a resposta
     // resposta completa: última linha "NNN " (sem hífen)
     const lines = buf.split('\r\n');
     for (let i = 0; i < lines.length - 1; i++) {
@@ -93,9 +94,12 @@ function smtpSession(socket) {
     }
   };
   socket.on('data', onData);
+  let failErr = null;
+  socket.on('error', (e) => { failErr = e; const w = waiter; waiter = null; w?.(null); });
+  socket.on('close', () => { if (!failErr) failErr = new Error('Conexão SMTP encerrada pelo servidor'); const w = waiter; waiter = null; w?.(null); });
   const read = () => new Promise((resolve, reject) => {
-    waiter = resolve;
-    socket.once('error', reject);
+    if (failErr) return reject(failErr);
+    waiter = (resp) => (resp === null ? reject(failErr) : resolve(resp));
     onData(Buffer.alloc(0));
   });
   const cmd = async (line, expect) => {
