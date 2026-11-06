@@ -10,20 +10,15 @@ Sem dependências externas: roda com Node.js 22.13+ e o SQLite embutido do próp
 
 ---
 
-## 1. Subir na VPS Wtatechor3 (Docker Swarm + Traefik + Portainer)
+## 1. VPS Wtatechor3 (Docker Swarm + Traefik + Portainer)
 
-Esta VPS usa Traefik (HTTPS automático) e stacks no Swarm. Siga este caminho:
+A cada envio para o `main`, o **GitHub Actions** roda os testes, monta a imagem para amd64 e arm64, testa de novo e publica em `ghcr.io/gilsonalvesgwta/caminho-biblico:main`.
 
-```bash
-# na VPS, como root
-mkdir -p /opt/caminho-biblico && cd /opt/caminho-biblico
-unzip -o /home/ubuntu/caminho-biblico-app.zip && cp -r caminho-biblico-app/. . && rm -rf caminho-biblico-app
-docker build -t caminho-biblico:latest .
-```
-
-Depois, no Portainer: **Stacks › Add stack**, nome `caminho`, cole `deploy/stack-portainer.yml` (troque e-mail e senha do admin) e clique em **Deploy the stack**. O Traefik gera o certificado sozinho para `caminho.wtatech.com.br`.
-
-Para atualizar: `bash /opt/caminho-biblico/deploy/atualizar.sh`. O script baixa do GitHub, monta a imagem `latest`, faz backup do banco e reinicia o serviço. Os dados ficam no volume `caminho_caminho_data` e não se perdem.
+- **Instalar:** Portainer › Stacks › Add stack › nome `caminho` › colar `deploy/stack-portainer.yml` (troque e-mail e senha do admin) › Deploy.
+- **Atualizar:** Portainer › Stacks › caminho › **Update the stack** com **Re-pull image and redeploy** ligado.
+- **Voltar uma versão:** troque `:main` pela versão `AAAA.MM.DD-xxxxxxx` que aparece no resumo do CI (aba Actions do GitHub).
+- Os dados ficam no volume `caminho_caminho_data` e não se perdem.
+- Plano B, sem GitHub: `bash deploy/atualizar.sh` na VPS monta a imagem localmente.
 
 ## 1b. Outras VPS (Docker Compose ou systemd)
 

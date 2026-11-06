@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    name: Testes (app, painel, Greenn, cálculos)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Sintaxe
+        run: |
+          for f in server.js src/*.js scripts/*.js public/shared/*.js public/app/*.js public/admin/*.js; do node --check "$f"; done
+          bash -n deploy/atualizar.sh
+      - name: Teste de ponta a ponta
+        run: node --no-warnings scripts/smoke-test.js
+
+  imagens:
+    name: Imagem (${{ matrix.arch }})
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [testes]
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Entrar no registro do GitHub
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Construir, testar e publicar
+        run: |
+          set -euo pipefail
+          versao="$(git show -s --format=%cd --date=format:%Y.%m.%d HEAD)-$(git rev-parse --short HEAD)"
+          img="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          docker build --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" --label org.opencontainers.image.version="$versao" -t "$img:$versao-${{ matrix.arch }}" .
+          docker run -d --name t "$img:$versao-${{ matrix.arch }}"
+          for i in $(seq 1 30); do docker exec t wget -qO- http://127.0.0.1:3100/health && break; sleep 1; done
+          docker exec t wget -qO- http://127.0.0.1:3100/health | grep -q '"ok":true'
+          docker rm -f t
+          docker push "$img:$versao-${{ matrix.arch }}"
+
+  publicar:
+    name: Publicar :main (amd64 + arm64)
+    needs: [imagens]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Juntar as arquiteturas e mover a etiqueta main
+        run: |
+          set -euo pipefail
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          versao="$(git show -s --format=%cd --date=format:%Y.%m.%d HEAD)-$(git rev-parse --short HEAD)"
+          img="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          docker buildx imagetools create -t "$img:$versao" -t "$img:main" "$img:$versao-amd64" "$img:$versao-arm64"
+          {
+            echo "### Versão publicada: \`$versao\`"
+            echo ""
+            echo "No Portainer: **Stacks › caminho › Update the stack** com **Re-pull image and redeploy** ligado."
+          } >> "$GITHUB_STEP_SUMMARY"

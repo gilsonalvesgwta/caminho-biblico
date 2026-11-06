@@ -1,13 +1,14 @@
 # Stack para a VPS Wtatechor3 (Docker Swarm + Traefik + Portainer)
-# Antes: construir a imagem na VPS ->  docker build -t caminho-biblico:latest /opt/caminho-biblico
-# Atualizações: bash /opt/caminho-biblico/deploy/atualizar.sh
-# Depois: Portainer > Stacks > Add stack > nome "caminho" > colar este arquivo > Deploy
+# A imagem é montada e testada pelo GitHub Actions a cada envio para o main (amd64 + arm64)
+# e publicada em ghcr.io/gilsonalvesgwta/caminho-biblico:main.
+# Atualizar: Portainer > Stacks > caminho > Update the stack, com "Re-pull image and redeploy" ligado.
+# Fixar/voltar uma versão: trocar :main pela versão AAAA.MM.DD-xxxxxxx do resumo do CI.
 
 version: "3.8"
 
 services:
   app:
-    image: caminho-biblico:latest
+    image: ghcr.io/gilsonalvesgwta/caminho-biblico:main
     environment:
       - NODE_ENV=production
       - APP_URL=https://caminho.wtatech.com.br
