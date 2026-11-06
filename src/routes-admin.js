@@ -7,6 +7,9 @@ import { reprocessWebhook, handleWebhook } from './greenn.js';
 import { sendEmail, emailLayout } from './mailer.js';
 import { flushOutbox } from './events.js';
 import { compute } from '../public/shared/calc.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { makeBackup, listBackups, backupDir } from './backup.js';
 
 const page = (q) => { const p = Math.max(1, Number(q.page || 1)); const size = Math.min(200, Math.max(10, Number(q.size || 25))); return { limit: size, offset: (p - 1) * size, page: p, size }; };
 const sinceDays = (d) => new Date(Date.now() - d * 86400e3).toISOString();
@@ -408,6 +411,27 @@ export function registerAdminRoutes(r) {
   r.get('/api/admin/outbox', (req) => {
     requireAdmin(req, 'admin');
     return { rows: db.all('SELECT id, event, status, attempts, last_error, created_at FROM outbox ORDER BY id DESC LIMIT 100') };
+  });
+
+  // ---------- backup ----------
+  r.get('/api/admin/backups', (req) => {
+    requireAdmin(req, 'admin');
+    return { rows: listBackups(), lastAuto: db.get("SELECT value FROM settings WHERE key = '_last_backup_at'")?.value || null };
+  });
+  r.post('/api/admin/backups', async (req) => {
+    requireAdmin(req, 'owner');
+    const file = await makeBackup('manual');
+    audit(req, 'backup.create', path.basename(file));
+    return { ok: true, name: path.basename(file) };
+  });
+  r.get('/api/admin/backups/:name', (req, res) => {
+    requireAdmin(req, 'owner');
+    const name = path.basename(req.params.name);
+    const file = path.join(backupDir(), name);
+    if (!/^app-[\w-]+\.db$/.test(name) || !fs.existsSync(file)) fail(404, 'Cópia não encontrada.');
+    audit(req, 'backup.download', name);
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="caminho-biblico-${name}"`, 'Content-Length': fs.statSync(file).size, 'Cache-Control': 'no-store' });
+    fs.createReadStream(file).pipe(res);
   });
 
   // ---------- equipe ----------

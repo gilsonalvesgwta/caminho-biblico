@@ -74,6 +74,15 @@ try {
   assert.equal((await call('x', 'POST', hook, { ...venda, currentStatus: 'refunded' })).json.outcome, 'ok');
   assert.equal((await call('user', 'GET', '/api/app/p/desafio-7-dias/day/1')).status, 403); step('reembolso remove o acesso');
 
+  const bk = (await call('admin', 'POST', '/api/admin/backups')).json;
+  assert.ok(bk.ok && bk.name);
+  const lista = (await call('admin', 'GET', '/api/admin/backups')).json.rows;
+  assert.equal(lista[0].name, bk.name);
+  const dl = await fetch(BASE + '/api/admin/backups/' + bk.name, { headers: { cookie: jar.admin } });
+  assert.equal(dl.status, 200); assert.ok((await dl.arrayBuffer()).byteLength > 10000);
+  assert.equal((await call('x', 'GET', '/api/admin/backups/' + bk.name)).status, 401);
+  step('backup: criar, listar e baixar (só administrador)');
+
   for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
   step('arquivos do app e do painel');
   console.log('\nTodos os testes passaram.');

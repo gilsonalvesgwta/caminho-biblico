@@ -12,6 +12,7 @@ import { registerAdminRoutes } from './src/routes-admin.js';
 import { handleWebhook } from './src/greenn.js';
 import { processReleases } from './src/services.js';
 import { flushOutbox } from './src/events.js';
+import { dailyBackupIfDue } from './src/backup.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUB = path.join(ROOT, 'public');
@@ -103,12 +104,13 @@ async function tick() {
     const n = await processReleases();
     if (n) console.log(`[agenda] ${n} liberação(ões) notificada(s)`);
     await flushOutbox();
+    await dailyBackupIfDue();
     cleanupSessions();
   } catch (e) { console.error('[agenda]', e); }
   finally { running = false; }
 }
 setTimeout(tick, 5000).unref();
-setInterval(tick, config.schedulerMinutes * 60e3).unref();
+setInterval(tick, Math.min(config.schedulerMinutes, 30) * 60e3).unref();
 
 function shutdown(sig) {
   console.log(`[${sig}] encerrando…`);
