@@ -18,12 +18,12 @@ Esta VPS usa Traefik (HTTPS automático) e stacks no Swarm. Siga este caminho:
 # na VPS, como root
 mkdir -p /opt/caminho-biblico && cd /opt/caminho-biblico
 unzip -o /home/ubuntu/caminho-biblico-app.zip && cp -r caminho-biblico-app/. . && rm -rf caminho-biblico-app
-docker build -t caminho-biblico:1.0.0 .
+docker build -t caminho-biblico:latest .
 ```
 
 Depois, no Portainer: **Stacks › Add stack**, nome `caminho`, cole `deploy/stack-portainer.yml` (troque e-mail e senha do admin) e clique em **Deploy the stack**. O Traefik gera o certificado sozinho para `caminho.wtatech.com.br`.
 
-Para atualizar uma versão nova: suba os arquivos, rode `docker build -t caminho-biblico:1.0.1 .`, troque a tag no editor da stack e clique em **Update the stack**. Os dados ficam no volume `caminho_caminho_data` e não se perdem.
+Para atualizar: `bash /opt/caminho-biblico/deploy/atualizar.sh`. O script baixa do GitHub, monta a imagem `latest`, faz backup do banco e reinicia o serviço. Os dados ficam no volume `caminho_caminho_data` e não se perdem.
 
 ## 1b. Outras VPS (Docker Compose ou systemd)
 

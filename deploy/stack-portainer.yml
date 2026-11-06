@@ -1,12 +1,13 @@
 # Stack para a VPS Wtatechor3 (Docker Swarm + Traefik + Portainer)
-# Antes: construir a imagem na VPS ->  docker build -t caminho-biblico:1.0.0 /opt/caminho-biblico
+# Antes: construir a imagem na VPS ->  docker build -t caminho-biblico:latest /opt/caminho-biblico
+# Atualizações: bash /opt/caminho-biblico/deploy/atualizar.sh
 # Depois: Portainer > Stacks > Add stack > nome "caminho" > colar este arquivo > Deploy
 
 version: "3.8"
 
 services:
   app:
-    image: caminho-biblico:1.0.0
+    image: caminho-biblico:latest
     environment:
       - NODE_ENV=production
       - APP_URL=https://caminho.wtatech.com.br
