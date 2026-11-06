@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Sintaxe
@@ -47,7 +47,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Entrar no registro do GitHub
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Construir, testar e publicar
@@ -56,10 +56,10 @@ jobs:
           versao="$(git show -s --format=%cd --date=format:%Y.%m.%d HEAD)-$(git rev-parse --short HEAD)"
           img="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
           docker build --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" --label org.opencontainers.image.version="$versao" -t "$img:$versao-${{ matrix.arch }}" .
-          docker run -d --name t "$img:$versao-${{ matrix.arch }}"
-          for i in $(seq 1 30); do docker exec t wget -qO- http://127.0.0.1:3100/health && break; sleep 1; done
-          docker exec t wget -qO- http://127.0.0.1:3100/health | grep -q '"ok":true'
-          docker rm -f t
+          docker run -d --name teste-imagem "$img:$versao-${{ matrix.arch }}"
+          for i in $(seq 1 30); do docker exec teste-imagem wget -qO- http://127.0.0.1:3100/health && break; sleep 1; done
+          docker exec teste-imagem wget -qO- http://127.0.0.1:3100/health | grep -q '"ok":true'
+          docker rm -f teste-imagem
           docker push "$img:$versao-${{ matrix.arch }}"
 
   publicar:
@@ -71,7 +71,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Juntar as arquiteturas e mover a etiqueta main
         run: |
           set -euo pipefail
