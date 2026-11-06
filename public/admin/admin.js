@@ -110,8 +110,8 @@ function barChart(el, series, { days }) {
     pts.push({ d, v: map.get(d)?.v || 0, c: map.get(d)?.c || 0 });
   }
   const W = 800, H = 220, pad = { l: 46, r: 8, t: 10, b: 24 };
-  const max = Math.max(...pts.map((p) => p.v), 1);
-  const nice = Math.pow(10, Math.floor(Math.log10(max))); const top = Math.ceil(max / nice) * nice;
+  const max = Math.max(...pts.map((p) => p.v), 0);
+  const nice = max ? Math.pow(10, Math.floor(Math.log10(max))) : 100; const top = max ? Math.ceil(max / nice) * nice : 100;
   const bw = (W - pad.l - pad.r) / pts.length;
   const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / top);
   const grid = [0, 0.5, 1].map((f) => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(top * f)}" y2="${y(top * f)}" stroke="#EDE8DD"/><text x="${pad.l - 8}" y="${y(top * f) + 4}" text-anchor="end" font-size="11" fill="#7C8893">${(top * f).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</text>`).join('');
