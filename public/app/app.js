@@ -1,11 +1,13 @@
 import { api, esc, toast, modal, withLoading, countdown, videoEmbed, firstName, fmtDate, $ } from '/shared/ui.js';
 import { compute, brl, NOTAS_RETRATO, setCurrency } from '/shared/calc.js';
 import { mountActivity, casaHtml, planoHtml, fmtLive, liveDateHtml } from '/activities.js';
+import { mountPlayer, youtubeId } from '/shared/player.js';
 
 const app = document.getElementById('app');
 let ME = null;
 let timers = [];
-const clearTimers = () => { timers.forEach(clearInterval); timers = []; };
+let cleanups = [];
+const clearTimers = () => { timers.forEach(clearInterval); timers = []; cleanups.forEach((f) => { try { f(); } catch { /* */ } }); cleanups = []; };
 
 const ICON = {
   mark: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M6 8h12" stroke="#E6CD97" stroke-width="1.8" stroke-linecap="round"/><path d="M4.5 19.5c2.4-1.3 4.9-2 7.5-2s5.1.7 7.5 2" stroke="#7FB8A2" stroke-width="1.6" stroke-linecap="round"/></svg>',
@@ -239,9 +241,11 @@ async function pageDay(n) {
   }
 
   const L = d.lesson, st = d.state;
-  const v1 = videoEmbed(L.video_url, `Aula do Dia ${n}`);
-  const v2 = videoEmbed(L.practice_video_url, `Prática do Dia ${n}`);
-  const player = (html, label) => `<div class="player">${html || `<div class="player-empty"><div><b>${label}</b>O vídeo será publicado em breve.</div></div>`}</div>`;
+  // YouTube → player próprio; outros provedores → incorporação padrão
+  const own1 = youtubeId(L.video_url), own2 = youtubeId(L.practice_video_url);
+  const v1 = own1 ? `<div id="pp1"></div>` : videoEmbed(L.video_url, `Aula do Dia ${n}`);
+  const v2 = own2 ? `<div id="pp2"></div>` : videoEmbed(L.practice_video_url, `Prática do Dia ${n}`);
+  const player = (html, label) => (html && html.startsWith('<div id="pp') ? html : `<div class="player">${html || `<div class="player-empty"><div><b>${label}</b>O vídeo será publicado em breve.</div></div>`}</div>`);
   shell(`
     <a class="back no-print" href="/" data-link>${ICON.back} Jornada</a>
     <header class="day-head"><div class="eyebrow">Dia ${n} de 7 ${L.block ? `<span class="badge" style="letter-spacing:0;text-transform:none">${esc(L.block)}</span>` : ''}</div>
@@ -273,6 +277,17 @@ async function pageDay(n) {
     Object.assign(st, r.state);
     steps(); return r;
   };
+  const markBtn = (sel, label, stepSel) => { const b = $(sel); if (b) { b.innerHTML = `${ICON.check} ${label}`; b.disabled = true; } $(stepSel)?.classList.add('done'); };
+  if (own1) {
+    const pl = mountPlayer($('#pp1'), { url: L.video_url, cover: L.cover_url, title: `Dia ${n} · ${L.title}`, storageKey: `${ME.user.id}:${p.slug}:${n}:aula`,
+      onWatched: async () => { if (st.watched) return; try { await progress('watched'); markBtn('#w1', 'Aula assistida', '#s1'); } catch { /* */ } } });
+    if (pl) cleanups.push(() => pl.destroy());
+  }
+  if (own2) {
+    const pl = mountPlayer($('#pp2'), { url: L.practice_video_url, cover: L.practice_cover_url, title: `Prática do Dia ${n}`, storageKey: `${ME.user.id}:${p.slug}:${n}:pratica`,
+      onWatched: async () => { if (st.practiceWatched) return; try { await progress('practice'); markBtn('#w2', 'Prática assistida', '#s2'); } catch { /* */ } } });
+    if (pl) cleanups.push(() => pl.destroy());
+  }
   $('#w1')?.addEventListener('click', async (e) => { await withLoading(e.currentTarget, () => progress('watched')); e.currentTarget.innerHTML = `${ICON.check} Aula assistida`; e.currentTarget.disabled = true; $('#s1').classList.add('done'); });
   $('#w2')?.addEventListener('click', async (e) => { await withLoading(e.currentTarget, () => progress('practice')); e.currentTarget.innerHTML = `${ICON.check} Prática assistida`; e.currentTarget.disabled = true; $('#s2')?.classList.add('done'); });
 

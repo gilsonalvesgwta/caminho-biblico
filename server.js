@@ -68,7 +68,7 @@ const server = http.createServer(async (req, res) => {
           const host = req.headers['x-forwarded-host'] || req.headers.host;
           if (origin && new URL(origin).host !== host) throw new HttpError(403, 'Origem não permitida');
         }
-        req.body = parseBody(await readBody(req), req.headers['content-type']);
+        req.body = parseBody(await readBody(req, pathname.endsWith('/cover') ? 8 * 1024 * 1024 : undefined), req.headers['content-type']);
       } else req.body = {};
       req.params = m.params;
       let out;
@@ -78,6 +78,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Método não permitido');
     if (pathname.startsWith('/shared/') && serveStatic(req, res, PUB, pathname)) return;
+    if (pathname.startsWith('/media/')) {
+      if (serveStatic(req, res, path.join(config.dataDir, 'uploads'), pathname.slice('/media'.length), { immutable: true })) return;
+      return send(res, 404, 'Não encontrado');
+    }
     if (pathname === '/admin' || pathname.startsWith('/admin/')) {
       if (serveStatic(req, res, PUB, pathname, { spaIndex: path.join(PUB, 'admin', 'index.html') })) return;
     }

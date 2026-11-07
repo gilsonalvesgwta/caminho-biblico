@@ -109,3 +109,16 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .lesson-item .n { width: 38px; height: 38px; border-radius: 11px; background: var(--ink-900); color: var(--gold-300); display: grid; place-items: center; font-family: var(--font-display); font-size: 18px; flex: none; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+.cover-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+@media (max-width: 720px) { .cover-grid { grid-template-columns: 1fr; } }
+.cover-field { display: flex; flex-direction: column; gap: 8px; }
+.cover-box { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: var(--ink-900); border: 1px solid var(--line); }
+.cover-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-box.is-loading { opacity: .5; }
+.cover-box.is-loading::after { content: ""; position: absolute; left: 50%; top: 50%; width: 28px; height: 28px; margin: -14px; border: 3px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
+.cover-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-300); font-size: 13px; }
+.cover-tag { position: absolute; left: 10px; top: 10px; font-size: 11px; font-weight: 800; background: rgba(7,18,29,.75); color: var(--gold-300); padding: 4px 8px; border-radius: 999px; }
+.cover-tag:empty { display: none; }
+.cover-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cover-actions .btn { cursor: pointer; }

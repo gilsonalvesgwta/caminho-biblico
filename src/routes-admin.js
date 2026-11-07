@@ -8,6 +8,7 @@ import { sendEmail, emailLayout } from './mailer.js';
 import { flushOutbox } from './events.js';
 import { compute } from '../public/shared/calc.js';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { makeBackup, listBackups, backupDir } from './backup.js';
 
@@ -362,6 +363,37 @@ export function registerAdminRoutes(r) {
     if (db.get('SELECT 1 FROM lessons WHERE product_id = ? AND number = ? AND id <> ?', cur.product_id, f[0], cur.id)) fail(400, `Já existe uma aula com o número ${f[0]}.`);
     db.run(`UPDATE lessons SET number=?, block=?, title=?, subtitle=?, objective=?, video_url=?, video_duration=?, practice_video_url=?, practice_duration=?, key_phrases=?, verses=?, body=?, activity_key=?, release_offset=?, release_message=?, tomorrow=?, published=?, updated_at=? WHERE id = ?`, ...f, now(), cur.id);
     audit(req, 'lesson.update', cur.id, { title: f[2] });
+    return { ok: true };
+  });
+  r.post('/api/admin/lessons/:id/cover', (req) => {
+    requireAdmin(req, 'admin');
+    const l = db.get('SELECT * FROM lessons WHERE id = ?', Number(req.params.id));
+    if (!l) fail(404, 'Aula não encontrada.');
+    const col = req.body.target === 'practice' ? 'practice_cover_url' : 'cover_url';
+    const m = String(req.body.data || '').match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+    if (!m) fail(400, 'Envie uma imagem JPG, PNG ou WebP.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 5 * 1024 * 1024) fail(413, 'Imagem muito grande. O máximo é 5 MB.');
+    const kind = buf[0] === 0xff && buf[1] === 0xd8 ? 'jpg' : buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? 'png' : buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'WEBP' ? 'webp' : null;
+    if (!kind) fail(400, 'O arquivo não é uma imagem válida.');
+    const dir = path.join(config.dataDir, 'uploads', 'covers');
+    fs.mkdirSync(dir, { recursive: true });
+    const name = `aula-${l.id}-${col === 'cover_url' ? 'v' : 'p'}-${crypto.createHash('sha256').update(buf).digest('hex').slice(0, 12)}.${kind}`;
+    fs.writeFileSync(path.join(dir, name), buf);
+    const old = l[col];
+    db.run(`UPDATE lessons SET ${col} = ?, updated_at = ? WHERE id = ?`, `/media/covers/${name}`, now(), l.id);
+    if (old && old.startsWith('/media/covers/') && old !== `/media/covers/${name}`) fs.rm(path.join(dir, path.basename(old)), { force: true }, () => {});
+    audit(req, 'lesson.cover', l.id, { target: col });
+    return { ok: true, url: `/media/covers/${name}` };
+  });
+  r.delete('/api/admin/lessons/:id/cover', (req) => {
+    requireAdmin(req, 'admin');
+    const l = db.get('SELECT * FROM lessons WHERE id = ?', Number(req.params.id));
+    if (!l) fail(404, 'Aula não encontrada.');
+    const col = req.query.target === 'practice' ? 'practice_cover_url' : 'cover_url';
+    if (l[col]?.startsWith('/media/covers/')) fs.rm(path.join(config.dataDir, 'uploads', 'covers', path.basename(l[col])), { force: true }, () => {});
+    db.run(`UPDATE lessons SET ${col} = NULL, updated_at = ? WHERE id = ?`, now(), l.id);
+    audit(req, 'lesson.cover.remove', l.id, { target: col });
     return { ok: true };
   });
   r.delete('/api/admin/lessons/:id', (req) => {

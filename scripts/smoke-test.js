@@ -74,6 +74,18 @@ try {
   assert.equal((await call('x', 'POST', hook, { ...venda, currentStatus: 'refunded' })).json.outcome, 'ok');
   assert.equal((await call('user', 'GET', '/api/app/p/desafio-7-dias/day/1')).status, 403); step('reembolso remove o acesso');
 
+  // capa personalizada (PNG mínimo válido)
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const cv = (await call('admin', 'POST', '/api/admin/lessons/1/cover', { target: 'video', data: png })).json;
+  assert.ok(cv.url?.startsWith('/media/covers/aula-1-v-'));
+  assert.equal((await fetch(BASE + cv.url)).status, 200);
+  assert.equal((await call('admin', 'POST', '/api/admin/lessons/1/cover', { target: 'video', data: 'data:image/png;base64,' + Buffer.from('não é imagem').toString('base64') })).status, 400);
+  assert.equal((await call('x', 'POST', '/api/admin/lessons/1/cover', { target: 'video', data: png })).status, 401);
+  assert.equal((await call('admin', 'DELETE', '/api/admin/lessons/1/cover?target=video')).status, 200);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal((await fetch(BASE + cv.url)).status, 404);
+  step('capa da aula: enviar, validar arquivo, proteger e remover');
+
   const bk = (await call('admin', 'POST', '/api/admin/backups')).json;
   assert.ok(bk.ok && bk.name);
   const lista = (await call('admin', 'GET', '/api/admin/backups')).json.rows;
@@ -83,7 +95,7 @@ try {
   assert.equal((await call('x', 'GET', '/api/admin/backups/' + bk.name)).status, 401);
   step('backup: criar, listar e baixar (só administrador)');
 
-  for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
+  for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/shared/player.js', '/shared/player.css', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
   step('arquivos do app e do painel');
   console.log('\nTodos os testes passaram.');
   process.exitCode = 0;

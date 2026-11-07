@@ -111,7 +111,7 @@ const MIME = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon',
   '.pdf': 'application/pdf', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8',
 };
-export function serveStatic(req, res, root, pathname, { spaIndex } = {}) {
+export function serveStatic(req, res, root, pathname, { spaIndex, immutable } = {}) {
   const safe = path.normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, '');
   let file = path.join(root, safe);
   if (!file.startsWith(root)) return false;
@@ -126,7 +126,7 @@ export function serveStatic(req, res, root, pathname, { spaIndex } = {}) {
   const noCache = ext === '.html' || file.endsWith('sw.js') || ext === '.webmanifest';
   const headers = {
     'Content-Type': MIME[ext] || 'application/octet-stream',
-    'Cache-Control': noCache ? 'no-cache' : 'public, max-age=3600',
+    'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : noCache ? 'no-cache' : 'public, max-age=3600',
     ETag: etag,
   };
   if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); res.end(); return true; }
@@ -143,10 +143,10 @@ export const SECURITY_HEADERS = {
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   'Content-Security-Policy': [
     "default-src 'self'",
-    "script-src 'self'",
+    "script-src 'self' https://www.youtube.com https://s.ytimg.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    "img-src 'self' data: https:",
+    "img-src 'self' data: blob: https:",
     "media-src 'self' https: blob:",
     "connect-src 'self'",
     "frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://*.pandavideo.com.br https://*.tv.pandavideo.com.br https://fast.wistia.net https://iframe.mediadelivery.net https://*.vturb.com.br https://scripts.converteai.net",

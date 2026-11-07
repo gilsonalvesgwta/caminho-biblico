@@ -1,5 +1,6 @@
 import { api, esc, toast, modal, withLoading, fmtDate, fmtDateTime, relTime, $, $$ } from '/shared/ui.js';
 import { brl, pct, money, setCurrency, NOTAS_RETRATO, ARMAS, FRUTOS } from '/shared/calc.js';
+import { youtubeId, youtubeThumb } from '/shared/player.js';
 
 const root = document.getElementById('root');
 let ME = null;
@@ -381,7 +382,69 @@ async function pageProduct(id) {
   $$('.lesson-item').forEach((el) => (el.onclick = () => lessonModal(Number(el.dataset.id), id)));
 }
 
+// ---------- capa personalizada dos vídeos ----------
+function coverField(target, label, url, videoUrl) {
+  const yt = youtubeId(videoUrl);
+  const src = url || (yt ? youtubeThumb(yt) : '');
+  return `<div class="cover-field" data-target="${target}">
+    <span class="label">${label}</span>
+    <div class="cover-box">${src ? `<img src="${esc(src)}" alt="" referrerpolicy="no-referrer">` : '<div class="cover-empty">Sem vídeo ainda</div>'}<span class="cover-tag">${url ? 'Capa personalizada' : yt ? 'Capa do YouTube' : ''}</span></div>
+    <div class="cover-actions">
+      <label class="btn btn-soft btn-sm">${url ? 'Trocar imagem' : 'Escolher imagem'}<input type="file" accept="image/jpeg,image/png,image/webp" hidden></label>
+      ${url ? '<button type="button" class="btn btn-ghost btn-sm" data-cover-del>Usar a do YouTube</button>' : ''}
+    </div>
+    <span class="hint">Ideal: 1920 × 1080 px (16:9), JPG ou WebP, até 5 MB. Imagens maiores são reduzidas automaticamente.</span>
+  </div>`;
+}
+async function prepareImage(file) {
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error('Use uma imagem JPG, PNG ou WebP.');
+  const url = URL.createObjectURL(file);
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Não foi possível ler a imagem.')); i.src = url; }).finally(() => setTimeout(() => URL.revokeObjectURL(url), 1000));
+  const ratio = img.naturalWidth / img.naturalHeight;
+  const warn = Math.abs(ratio - 16 / 9) > 0.05 ? `A imagem tem ${img.naturalWidth}×${img.naturalHeight}. Ela será cortada para 16:9.` : '';
+  const scale = Math.min(1, 1920 / img.naturalWidth);
+  if (scale === 1 && file.size <= 1.5 * 1024 * 1024) return { data: await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(file); }), warn };
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  let data = c.toDataURL('image/webp', 0.86);
+  if (!data.startsWith('data:image/webp')) data = c.toDataURL('image/jpeg', 0.86);
+  return { data, warn };
+}
+function bindCovers(m, lid) { m.querySelectorAll('.cover-field').forEach((box) => bindCover(box, lid)); }
+function bindCover(box, lid) {
+  {
+    const target = box.dataset.target;
+    const refresh = async () => {
+      const lessons = (await api(`/api/admin/products/${currentProductId}/lessons`)).rows;
+      const l = lessons.find((x) => x.id === lid);
+      const isV = target === 'video';
+      const tmp = document.createElement('div');
+      tmp.innerHTML = coverField(target, isV ? 'Capa da aula' : 'Capa da prática', isV ? l.cover_url : l.practice_cover_url, isV ? l.video_url : l.practice_video_url);
+      const fresh = tmp.firstElementChild;
+      box.replaceWith(fresh);
+      bindCover(fresh, lid);
+    };
+    box.querySelector('input[type=file]')?.addEventListener('change', async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      try {
+        box.querySelector('.cover-box').classList.add('is-loading');
+        const { data, warn } = await prepareImage(file);
+        await api(`/api/admin/lessons/${lid}/cover`, { method: 'POST', body: { target, data } });
+        toast(warn || 'Capa atualizada', { ms: warn ? 5000 : 3200 });
+        await refresh();
+      } catch (er) { toast(er.message, { error: true }); box.querySelector('.cover-box')?.classList.remove('is-loading'); }
+    });
+    box.querySelector('[data-cover-del]')?.addEventListener('click', async () => {
+      try { await api(`/api/admin/lessons/${lid}/cover?target=${target}`, { method: 'DELETE' }); toast('Voltou para a capa do YouTube'); await refresh(); }
+      catch (er) { toast(er.message, { error: true }); }
+    });
+  }
+}
+let currentProductId = null;
+
 async function lessonModal(lid, pid) {
+  currentProductId = pid;
   const { rows } = await api(`/api/admin/products/${pid}/lessons`);
   const l = rows.find((x) => x.id === lid);
   const ro = !can('admin') ? 'disabled' : '';
@@ -395,6 +458,7 @@ async function lessonModal(lid, pid) {
     <div class="field"><label>Duração da aula</label><input class="input" name="video_duration" value="${esc(l.video_duration)}"></div>
     <div class="field"><label>Vídeo 2 · Prática (link)</label><input class="input" name="practice_video_url" value="${esc(l.practice_video_url)}"></div>
     <div class="field"><label>Duração da prática</label><input class="input" name="practice_duration" value="${esc(l.practice_duration)}"></div>
+    <div class="full cover-grid">${coverField('video', 'Capa da aula', l.cover_url, l.video_url)}${coverField('practice', 'Capa da prática', l.practice_cover_url, l.practice_video_url)}</div>
     <div class="field full"><label>Versículos (um por linha: Referência | Texto)</label><textarea class="input" name="verses" rows="5">${esc(l.verses.map((v) => `${v.ref} | ${v.text}`).join('\n'))}</textarea></div>
     <div class="field full"><label>Frases-chave (uma por linha)</label><textarea class="input" name="key_phrases" rows="4">${esc(l.key_phrases.join('\n'))}</textarea></div>
     <div class="field full"><label>Curiosidade para o próximo dia</label><textarea class="input" name="tomorrow">${esc(l.tomorrow)}</textarea></div>
@@ -411,6 +475,7 @@ async function lessonModal(lid, pid) {
       f.verses = String(f.verses).split('\n').map((x) => x.split('|')).filter((x) => x[0].trim()).map(([ref, ...t]) => ({ ref: ref.trim(), text: t.join('|').trim() }));
       try { await api(`/api/admin/lessons/${lid}`, { method: 'PUT', body: f }); close(); toast('Aula salva'); pageProduct(pid); } catch (er) { toast(er.message, { error: true }); }
     });
+    bindCovers(m, lid);
     m.querySelector('#dl')?.addEventListener('click', async () => { if (!confirm('Excluir esta aula? O progresso dos alunos nela será perdido.')) return; await api(`/api/admin/lessons/${lid}`, { method: 'DELETE' }); close(); pageProduct(pid); });
   } });
 }

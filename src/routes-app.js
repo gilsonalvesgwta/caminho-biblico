@@ -13,7 +13,7 @@ const publicSettings = (s = getSettings()) => ({
 
 function lessonOut(l, full = false) {
   const o = { id: l.id, number: l.number, block: l.block, title: l.title, subtitle: l.subtitle, video_duration: l.video_duration, practice_duration: l.practice_duration, activity_key: l.activity_key };
-  if (full) Object.assign(o, { objective: l.objective, video_url: l.video_url, practice_video_url: l.practice_video_url, key_phrases: jparse(l.key_phrases, []), verses: jparse(l.verses, []), body: l.body, tomorrow: l.tomorrow });
+  if (full) Object.assign(o, { objective: l.objective, video_url: l.video_url, practice_video_url: l.practice_video_url, cover_url: l.cover_url, practice_cover_url: l.practice_cover_url, key_phrases: jparse(l.key_phrases, []), verses: jparse(l.verses, []), body: l.body, tomorrow: l.tomorrow });
   return o;
 }
 

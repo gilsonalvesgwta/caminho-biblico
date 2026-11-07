@@ -274,6 +274,11 @@ const migrations = [
   UPDATE sales SET client_name = (SELECT json_extract(w.payload, '$.client.name') FROM webhook_events w WHERE json_extract(w.payload, '$.sale.id') = sales.sale_id ORDER BY w.id DESC LIMIT 1),
                    client_phone = (SELECT json_extract(w.payload, '$.client.cellphone') FROM webhook_events w WHERE json_extract(w.payload, '$.sale.id') = sales.sale_id ORDER BY w.id DESC LIMIT 1);
   `,
+  // 3 — capas personalizadas dos vídeos
+  `
+  ALTER TABLE lessons ADD COLUMN cover_url TEXT;
+  ALTER TABLE lessons ADD COLUMN practice_cover_url TEXT;
+  `,
 ];
 
 export function migrate() {
