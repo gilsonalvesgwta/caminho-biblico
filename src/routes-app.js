@@ -110,7 +110,8 @@ export function registerAppRoutes(r) {
     const st = states[i];
     if (!st.available) return { locked: true, product: { slug: product.slug, unitLabel: product.unit_label || 'Dia', total: lessons.length }, lesson: lessonOut(lessons[i]), state: st };
     const meta = { slug: product.slug, unitLabel: product.unit_label || 'Dia', total: lessons.length, releaseMode: product.release_mode };
-    return { product: meta, lesson: lessonOut(lessons[i], true), state: st, answers: loadAnswers(u.id, product.id), next: lessons[i + 1] ? { number: lessons[i + 1].number, title: lessons[i + 1].title, ...states[i + 1] } : null, live: product.show_live && i === lessons.length - 1 ? nextLive() : null, delayHours: product.release_delay_hours };
+    const watchNote = lessons[i].watch_note ?? product.watch_note ?? '';
+    return { product: meta, lesson: lessonOut(lessons[i], true), watchNote, state: st, answers: loadAnswers(u.id, product.id), next: lessons[i + 1] ? { number: lessons[i + 1].number, title: lessons[i + 1].title, ...states[i + 1] } : null, live: product.show_live && i === lessons.length - 1 ? nextLive() : null, delayHours: product.release_delay_hours };
   });
 
   r.put('/api/app/p/:slug/answers/:day', (req) => {
@@ -138,6 +139,13 @@ export function registerAppRoutes(r) {
     const i = lessons.findIndex((l) => l.number === Number(req.params.n));
     if (i < 0 || !states[i].available) fail(403, 'Este dia ainda não foi liberado.');
     const l = lessons[i]; const t = now();
+    // desmarcar (clique sem querer): apaga só a marcação de assistida; a conclusão não muda
+    const undo = { unwatched: 'watched_at', unpractice: 'practice_watched_at' }[req.body.action];
+    if (undo) {
+      db.run(`UPDATE progress SET ${undo} = NULL, updated_at = ? WHERE user_id = ? AND lesson_id = ?`, t, u.id, l.id);
+      const fresh = lessonStates(u.id, product, db.get('SELECT * FROM enrollments WHERE user_id = ? AND product_id = ?', u.id, product.id), lessons);
+      return { ok: true, state: fresh[i], next: fresh[i + 1] || null };
+    }
     const col = { watched: 'watched_at', practice: 'practice_watched_at', complete: 'completed_at' }[req.body.action];
     if (!col) fail(400, 'Ação inválida.');
     if (col === 'completed_at' && l.activity_key && !db.get('SELECT 1 FROM answers WHERE user_id = ? AND product_id = ? AND day = ?', u.id, product.id, l.number)) fail(400, 'Salve a sua atividade antes de concluir o dia.');

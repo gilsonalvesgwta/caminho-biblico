@@ -329,3 +329,9 @@ main.page.wide { max-width: 980px; }
 .auth-art .brand-wide { height: 56px; }
 .auth-art .brand-wide img { max-width: 280px; }
 @media (max-width: 640px) { .brand-wide { height: 34px; } .brand-wide img { max-width: 170px; } }
+
+/* Marcar / desmarcar como assistida */
+.watch-on { display: inline-grid; place-items: center; }
+.watch-on > span { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 6px; }
+.watch-on .w-undo { visibility: hidden; color: #B3412F; }
+@media (hover: hover) { .watch-on:hover .w-on { visibility: hidden; } .watch-on:hover .w-undo { visibility: visible; } }

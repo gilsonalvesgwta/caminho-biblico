@@ -116,6 +116,21 @@ try {
   const a1 = (await call('user', 'GET', '/api/app/p/riqueza-a-dois/day/1')).json;
   assert.equal(a1.product.unitLabel, 'Aula'); assert.equal(a1.product.total, 2); assert.equal(a1.live, null);
   assert.equal((await call('user', 'GET', '/api/app/p/riqueza-a-dois/day/2')).json.locked, true);
+  // frase abaixo do vídeo: padrão do produto, personalizada na aula ou nenhuma
+  assert.equal(a1.watchNote, '');
+  const prodsWn = (await call('admin', 'GET', '/api/admin/products')).json.rows;
+  assert.equal(prodsWn.find((x) => x.slug === 'desafio-7-dias').watch_note, 'Assista com atenção. Se puder, tenha uma Bíblia por perto.');
+  await call('admin', 'PUT', `/api/admin/products/${p2.id}`, { watch_note: 'Frase do curso' });
+  const note = async () => (await call('user', 'GET', '/api/app/p/riqueza-a-dois/day/1')).json.watchNote;
+  assert.equal(await note(), 'Frase do curso');
+  const l1 = (await call('admin', 'GET', `/api/admin/products/${p2.id}/lessons`)).json.rows[0];
+  await call('admin', 'PUT', `/api/admin/lessons/${l1.id}`, { watch_note: 'Só desta aula' }); assert.equal(await note(), 'Só desta aula');
+  await call('admin', 'PUT', `/api/admin/lessons/${l1.id}`, { watch_note: '' }); assert.equal(await note(), '');
+  await call('admin', 'PUT', `/api/admin/lessons/${l1.id}`, { watch_note: null }); assert.equal(await note(), 'Frase do curso');
+  // marcar e desmarcar como assistida
+  assert.equal((await call('user', 'POST', '/api/app/p/riqueza-a-dois/day/1/progress', { action: 'watched' })).json.state.watched, true);
+  assert.equal((await call('user', 'POST', '/api/app/p/riqueza-a-dois/day/1/progress', { action: 'unwatched' })).json.state.watched, false);
+  step('frase abaixo do vídeo (produto, aula, nenhuma) e desmarcar aula assistida');
   const c1 = (await call('user', 'POST', '/api/app/p/riqueza-a-dois/day/1/progress', { action: 'complete' })).json;
   assert.equal(c1.next.available, true); step('curso sem atividade: concluir aula 1 libera a aula 2 na hora');
 

@@ -318,6 +318,12 @@ const migrations = [
   CREATE INDEX ad_spend_date ON ad_spend(date);
   CREATE UNIQUE INDEX ad_spend_uniq ON ad_spend(source, date, campaign_id) WHERE source <> 'manual';
   `,
+  // 6: frase abaixo do vídeo (padrão do produto + personalização por aula). Produtos existentes mantêm a frase atual.
+  `
+  ALTER TABLE products ADD COLUMN watch_note TEXT;
+  ALTER TABLE lessons ADD COLUMN watch_note TEXT;
+  UPDATE products SET watch_note = 'Assista com atenção. Se puder, tenha uma Bíblia por perto.' WHERE kind <> 'bonus';
+  `,
 ];
 
 export function migrate() {

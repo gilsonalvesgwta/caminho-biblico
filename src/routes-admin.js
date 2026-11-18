@@ -352,7 +352,7 @@ export function registerAdminRoutes(r) {
   });
   // Campos do produto (identidade visual incluída). Ordem = colunas de PRODUCT_COLS.
   const PRODUCT_COLS = ['slug', 'name', 'kind', 'tagline', 'description', 'greenn_ids', 'release_mode', 'release_delay_hours', 'access_days', 'materials', 'position', 'active',
-    'theme', 'short_name', 'mentor', 'unit_label', 'show_live', 'sales_url', 'show_in_store', 'badge'];
+    'theme', 'short_name', 'mentor', 'unit_label', 'show_live', 'sales_url', 'show_in_store', 'badge', 'watch_note'];
   const HEX = /^#[0-9a-f]{6}$/i;
   const productFields = (b, cur = {}) => {
     const pick = (k, d = '') => (b[k] !== undefined ? b[k] : cur[k] !== undefined && cur[k] !== null ? cur[k] : d);
@@ -372,7 +372,7 @@ export function registerAdminRoutes(r) {
       String(pick('greenn_ids')).split(/[\s,;]+/).filter(Boolean).join(','), pick('release_mode', 'after_complete'),
       Number(pick('release_delay_hours', 24)), accessDays, JSON.stringify(b.materials ?? jparse(cur.materials, [])), Number(pick('position', 0)), bool('active', 1),
       JSON.stringify(theme), String(pick('short_name') || '').trim() || null, String(pick('mentor') || '').trim() || null, String(pick('unit_label', 'Dia') || 'Dia').trim().slice(0, 20),
-      bool('show_live', 0), salesUrl || null, bool('show_in_store', 0), String(pick('badge') || '').trim().slice(0, 24) || null];
+      bool('show_live', 0), salesUrl || null, bool('show_in_store', 0), String(pick('badge') || '').trim().slice(0, 24) || null, String(pick('watch_note') || '').trim().slice(0, 300) || null];
   };
   r.post('/api/admin/products', (req) => {
     requireAdmin(req, 'admin');
@@ -484,6 +484,8 @@ export function registerAdminRoutes(r) {
     const f = lessonFields(req.body, cur);
     if (db.get('SELECT 1 FROM lessons WHERE product_id = ? AND number = ? AND id <> ?', cur.product_id, f[0], cur.id)) fail(400, `Já existe uma aula com o número ${f[0]}.`);
     db.run(`UPDATE lessons SET number=?, block=?, title=?, subtitle=?, objective=?, video_url=?, video_duration=?, practice_video_url=?, practice_duration=?, key_phrases=?, verses=?, body=?, activity_key=?, release_offset=?, release_message=?, tomorrow=?, published=?, updated_at=? WHERE id = ?`, ...f, now(), cur.id);
+    // frase abaixo do vídeo: null = usar a do produto; '' = nenhuma; texto = personalizada
+    if (req.body.watch_note !== undefined) db.run('UPDATE lessons SET watch_note = ? WHERE id = ?', req.body.watch_note === null ? null : String(req.body.watch_note).trim().slice(0, 300), cur.id);
     audit(req, 'lesson.update', cur.id, { title: f[2] });
     return { ok: true };
   });

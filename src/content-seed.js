@@ -88,7 +88,7 @@ export function seedContent() {
       'guia-casa-em-ordem', 'Guia rápido: Casa em Ordem', 'bonus',
       'Cortes, teto de gastos variáveis, horário do dinheiro e fórmula da reserva.',
       'Bônus / order bump do desafio.', 'open', JSON.stringify([{ title: 'Guia rápido: Casa em Ordem (PDF)', url: '' }]), 2, t, t);
-    db.run("UPDATE products SET show_live = 1, short_name = 'Caminho Bíblico', mentor = 'Rhus Moreira' WHERE slug = 'desafio-7-dias'");
+    db.run("UPDATE products SET show_live = 1, short_name = 'Caminho Bíblico', mentor = 'Rhus Moreira', watch_note = 'Assista com atenção. Se puder, tenha uma Bíblia por perto.' WHERE slug = 'desafio-7-dias'");
     db.run("UPDATE products SET unit_label = 'Material', short_name = 'Casa em Ordem' WHERE slug = 'guia-casa-em-ordem'");
   });
   console.log('[seed] conteúdo inicial do desafio criado');

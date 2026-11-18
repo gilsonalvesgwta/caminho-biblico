@@ -415,7 +415,7 @@ async function pageDay(p, n) {
 
     <section class="step-card"><div class="step-h"><span class="step-n ${st.watched ? 'done' : ''}" id="s1">1</span><h2>A aula</h2><span class="meta">${esc(L.video_duration || '')}</span></div>
       ${player(v1, 'Aula do dia')}
-      <div class="watch-row"><span class="faint" style="font-size:13px">Assista com atenção. Se puder, tenha uma Bíblia por perto.</span><button class="btn btn-soft btn-sm" id="w1" ${st.watched ? 'disabled' : ''}>${st.watched ? `${ICON.check} Aula assistida` : 'Marcar aula como assistida'}</button></div>
+      <div class="watch-row">${d.watchNote ? `<span class="faint" style="font-size:13px">${esc(d.watchNote)}</span>` : '<span></span>'}${watchBtn('w1', st.watched, 'Aula assistida', 'Marcar aula como assistida')}</div>
     </section>
 
     ${L.objective ? `<div class="objective" style="margin-top:22px"><div class="eyebrow" style="margin-bottom:6px">Objetivo de hoje</div>${esc(L.objective)}</div>` : ''}
@@ -423,7 +423,7 @@ async function pageDay(p, n) {
     ${L.key_phrases?.length ? `<div class="section-h"><h2 style="font-size:20px">Para guardar no coração</h2></div><ul class="phrases">${L.key_phrases.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
 
     ${L.activity_key ? `<section class="step-card"><div class="step-h"><span class="step-n ${st.practiceWatched ? 'done' : ''}" id="s2">2</span><h2>A prática</h2><span class="meta">${esc(L.practice_duration || '')}</span></div>
-      ${v2 ? player(v2, '') + `<div class="watch-row"><span></span><button class="btn btn-soft btn-sm" id="w2" ${st.practiceWatched ? 'disabled' : ''}>${st.practiceWatched ? `${ICON.check} Prática assistida` : 'Marcar como assistida'}</button></div>` : '<p class="muted">Siga os passos abaixo. Leva cerca de ' + esc(L.practice_duration || '15 min') + '.</p>'}
+      ${v2 ? player(v2, '') + `<div class="watch-row"><span></span>${watchBtn('w2', st.practiceWatched, 'Prática assistida', 'Marcar como assistida')}</div>` : '<p class="muted">Siga os passos abaixo. Leva cerca de ' + esc(L.practice_duration || '15 min') + '.</p>'}
     </section>
     <section class="step-card"><div class="step-h"><span class="step-n ${st.completed ? 'done' : ''}" id="s3">3</span><h2>A sua atividade de hoje</h2></div><div id="activity"></div></section>
     <div class="save-state no-print"><span id="save">Suas respostas são salvas automaticamente</span></div>` : ''}
@@ -438,9 +438,24 @@ async function pageDay(p, n) {
     Object.assign(st, r.state);
     steps(); return r;
   };
-  const markBtn = (sel, label, stepSel) => { const b = $(sel); if (b) { b.innerHTML = `${ICON.check} ${label}`; b.disabled = true; } $(stepSel)?.classList.add('done'); };
+  const markBtn = (sel, label, stepSel) => { const b = $(sel); if (b) b.outerHTML = watchBtn(b.id, true, label, b.dataset.off); bindWatch(sel); $(stepSel)?.classList.add('done'); };
+  // marcar / desmarcar como assistida (desfaz um clique sem querer)
+  const WATCH = { '#w1': ['watched', 'unwatched', 'watched', 'Aula assistida', '#s1'], '#w2': ['practice', 'unpractice', 'practiceWatched', 'Prática assistida', '#s2'] };
+  function bindWatch(sel) {
+    const b = $(sel); if (!b) return;
+    b.addEventListener('click', async () => {
+      const [on, off, key, label, stepSel] = WATCH[sel];
+      const turnOn = !st[key];
+      try {
+        await withLoading(b, () => progress(turnOn ? on : off));
+        const fresh = $(sel); fresh.outerHTML = watchBtn(fresh.id, turnOn, label, fresh.dataset.off); bindWatch(sel);
+        $(stepSel)?.classList.toggle('done', turnOn);
+        if (!turnOn) toast('Marcação desfeita');
+      } catch (er) { toast(er.message, { error: true }); }
+    });
+  }
   if (own1) {
-    const pl = mountPlayer($('#pp1'), { url: L.video_url, cover: L.cover_url, title: `${u.label} ${n} · ${L.title}`, storageKey: `${ME.user.id}:${p.slug}:${n}:aula`,
+    const pl = mountPlayer($('#pp1'), { url: L.video_url, cover: L.cover_url, title: norm(L.title) === norm(`${u.label} ${n}`) ? L.title : `${u.label} ${n} · ${L.title}`, storageKey: `${ME.user.id}:${p.slug}:${n}:aula`,
       onWatched: async () => { if (st.watched) return; try { await progress('watched'); markBtn('#w1', 'Aula assistida', '#s1'); } catch { /* */ } } });
     if (pl) cleanups.push(() => pl.destroy());
   }
@@ -449,8 +464,7 @@ async function pageDay(p, n) {
       onWatched: async () => { if (st.practiceWatched) return; try { await progress('practice'); markBtn('#w2', 'Prática assistida', '#s2'); } catch { /* */ } } });
     if (pl) cleanups.push(() => pl.destroy());
   }
-  $('#w1')?.addEventListener('click', async (e) => { await withLoading(e.currentTarget, () => progress('watched')); e.currentTarget.innerHTML = `${ICON.check} Aula assistida`; e.currentTarget.disabled = true; $('#s1').classList.add('done'); });
-  $('#w2')?.addEventListener('click', async (e) => { await withLoading(e.currentTarget, () => progress('practice')); e.currentTarget.innerHTML = `${ICON.check} Prática assistida`; e.currentTarget.disabled = true; $('#s2')?.classList.add('done'); });
+  bindWatch('#w1'); bindWatch('#w2');
 
   // atividade com salvamento automático (servidor + rascunho local)
   let act = null, saveTimer = null, dirty = false, saving = null;
@@ -509,6 +523,14 @@ async function pageDay(p, n) {
     }
   };
   renderFinish();
+}
+
+const norm = (x) => String(x || '').trim().toLowerCase();
+/** Botão de assistida: ligado mostra ✓ e, ao passar o mouse, "Desmarcar" */
+function watchBtn(id, on, labelOn, labelOff) {
+  return on
+    ? `<button class="btn btn-soft btn-sm watch-on" id="${id}" data-off="${esc(labelOff)}" aria-pressed="true" title="Clique para desmarcar"><span class="w-on">${ICON.check} ${esc(labelOn)}</span><span class="w-undo">Desmarcar</span></button>`
+    : `<button class="btn btn-soft btn-sm" id="${id}" data-off="${esc(labelOff)}">${esc(labelOff)}</button>`;
 }
 
 function celebrate(p, n, last) {

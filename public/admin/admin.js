@@ -605,6 +605,7 @@ function productModal(p = {}, startTab = 'geral') {
       <div class="field"><label>Tipo</label>${opt('kind', [['challenge', 'Desafio (aulas + atividades)'], ['course', 'Curso (aulas)'], ['bonus', 'Bônus / material para download']], p.kind || 'challenge')}</div>
       <div class="field"><label>Cada aula se chama</label>${opt('unit_label', [['Dia', 'Dia (Dia 1, Dia 2…)'], ['Aula', 'Aula'], ['Módulo', 'Módulo'], ['Lição', 'Lição'], ['Semana', 'Semana'], ['Episódio', 'Episódio'], ['Material', 'Material']], p.unit_label || 'Dia')}</div>
       <div class="field full"><label>Frase de apoio</label><input class="input" name="tagline" value="${esc(p.tagline)}" placeholder="Aparece na vitrine e no topo da jornada"></div>
+      <div class="field full"><label>Frase abaixo do vídeo (padrão das aulas)</label><input class="input" name="watch_note" value="${esc(p.watch_note)}" maxlength="300" placeholder="Ex.: Assista com atenção. Se puder, tenha uma Bíblia por perto."><span class="hint">Opcional. Vazio = sem frase. Cada aula pode usar esta, ter uma própria ou nenhuma.</span></div>
       <div class="field"><label>IDs do produto na Greenn</label><input class="input" name="greenn_ids" value="${esc(p.greenn_ids)}" placeholder="Ex.: 123456, 123457"><span class="hint">Número da URL de edição do produto na Greenn. Vários separados por vírgula.</span></div>
       <div class="field"><label>Duração do acesso (dias)</label><input class="input" name="access_days" type="number" min="1" value="${esc(p.access_days ?? '')}" placeholder="Vazio = vitalício"></div>
       <div class="field"><label>Liberação das aulas</label>${opt('release_mode', [['after_complete', 'X horas após concluir a anterior'], ['sequential', 'Na hora, ao concluir a anterior'], ['drip', 'Por calendário (dias após a compra)'], ['open', 'Tudo liberado de uma vez']], p.release_mode || 'after_complete')}</div>
@@ -707,6 +708,7 @@ async function pageProduct(id) {
   const [{ rows: products }, { rows: lessons }] = await Promise.all([api('/api/admin/products'), api(`/api/admin/products/${id}/lessons`)]);
   const p = products.find((x) => String(x.id) === String(id));
   if (!p) return go('/conteudo');
+  currentProductNote = p.watch_note || '';
   $('#main').innerHTML = `<a href="${BASE}/conteudo" data-go="/conteudo" class="faint" style="font-weight:700">← Conteúdo</a>` + head(esc(p.name), esc(p.tagline || ''), can('admin') ? `<button class="btn btn-soft" id="cfg">Configurar produto</button>${p.kind !== 'bonus' ? '<button class="btn btn-primary" id="nl">+ Nova aula</button>' : ''}` : '') + `
     <div class="panel">${lessons.map((l) => `<div class="lesson-item" data-id="${l.id}"><div class="n">${l.number}</div><div style="flex:1;min-width:0"><b style="font-size:15px">${esc(l.title)}</b><br><small class="faint">${esc(l.block || '')}${l.video_duration ? ` · ${esc(l.video_duration)}` : ''} · ${l.video_url ? 'aula ✓' : '<span style="color:var(--warn)">aula sem vídeo</span>'} · ${l.practice_video_url ? 'prática ✓' : '<span style="color:var(--warn)">prática sem vídeo</span>'}</small></div>${l.published ? '<span class="badge ok">Publicada</span>' : '<span class="badge">Rascunho</span>'}</div>`).join('') || '<div class="empty">Nenhuma aula neste produto.</div>'}</div>`;
   $('#cfg')?.addEventListener('click', () => productModal(p));
@@ -776,6 +778,7 @@ function bindCover(box, lid) {
   }
 }
 let currentProductId = null;
+let currentProductNote = '';
 
 async function lessonModal(lid, pid) {
   currentProductId = pid;
@@ -792,6 +795,8 @@ async function lessonModal(lid, pid) {
     <div class="field"><label>Duração da aula</label><input class="input" name="video_duration" value="${esc(l.video_duration)}"></div>
     <div class="field"><label>Vídeo 2 · Prática (link)</label><input class="input" name="practice_video_url" value="${esc(l.practice_video_url)}"></div>
     <div class="field"><label>Duração da prática</label><input class="input" name="practice_duration" value="${esc(l.practice_duration)}"></div>
+    <div class="field"><label>Frase abaixo do vídeo</label><select class="input" id="wn-mode"><option value="product" ${l.watch_note == null ? 'selected' : ''}>Usar a do produto</option><option value="custom" ${l.watch_note ? 'selected' : ''}>Personalizada para esta aula</option><option value="none" ${l.watch_note === '' ? 'selected' : ''}>Sem frase</option></select></div>
+    <div class="field"><label>&nbsp;</label><input class="input" id="wn-text" maxlength="300" value="${esc(l.watch_note || '')}" placeholder="${esc(currentProductNote || 'O produto está sem frase padrão')}"></div>
     <div class="full cover-grid">${coverField('video', 'Capa da aula', l.cover_url, l.video_url)}${coverField('practice', 'Capa da prática', l.practice_cover_url, l.practice_video_url)}</div>
     <div class="field full"><label>Versículos (um por linha: Referência | Texto)</label><textarea class="input" name="verses" rows="5">${esc(l.verses.map((v) => `${v.ref} | ${v.text}`).join('\n'))}</textarea></div>
     <div class="field full"><label>Frases-chave (uma por linha)</label><textarea class="input" name="key_phrases" rows="4">${esc(l.key_phrases.join('\n'))}</textarea></div>
@@ -802,8 +807,14 @@ async function lessonModal(lid, pid) {
     <label class="switch full"><input type="checkbox" name="published" ${l.published ? 'checked' : ''}> Publicada</label>
     ${ro ? '' : `<div class="full" style="margin-top:16px;display:flex;gap:8px"><button class="btn btn-primary">Salvar aula</button>${can('owner') ? '<button type="button" class="btn btn-danger" id="dl">Excluir</button>' : ''}</div>`}</fieldset></form>`,
   onMount: (m, close) => {
+    const wnSync = () => { const md = m.querySelector('#wn-mode').value, t = m.querySelector('#wn-text'); t.disabled = md !== 'custom' || !!ro; if (md === 'product') t.value = ''; if (md === 'none') t.value = ''; t.placeholder = md === 'product' ? (currentProductNote || 'O produto está sem frase padrão') : md === 'none' ? 'Nenhuma frase nesta aula' : 'Escreva a frase desta aula'; };
+    m.querySelector('#wn-mode').addEventListener('change', () => { wnSync(); if (m.querySelector('#wn-mode').value === 'custom') m.querySelector('#wn-text').focus(); });
+    wnSync();
     m.querySelector('#lf').addEventListener('submit', async (e) => {
       e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+      const wm = m.querySelector('#wn-mode').value, wt = m.querySelector('#wn-text').value.trim();
+      if (wm === 'custom' && !wt) { toast('Escreva a frase personalizada ou escolha outra opção.', { error: true }); return; }
+      f.watch_note = wm === 'product' ? null : wm === 'none' ? '' : wt;
       f.published = !!f.published; f.number = Number(f.number); f.release_offset = Number(f.release_offset || 0);
       f.key_phrases = String(f.key_phrases).split('\n').map((x) => x.trim()).filter(Boolean);
       f.verses = String(f.verses).split('\n').map((x) => x.split('|')).filter((x) => x[0].trim()).map(([ref, ...t]) => ({ ref: ref.trim(), text: t.join('|').trim() }));
