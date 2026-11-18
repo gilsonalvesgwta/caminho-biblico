@@ -1021,9 +1021,9 @@ async function pageIntegrations() {
 
 // ---------- logo da plataforma ----------
 const LOGO_KINDS = [
-  ['icon', 'brand_logo', 'Ícone', 'Quadrado, 512 × 512 px, PNG ou SVG com fundo transparente. Substitui o símbolo ao lado do nome, o ícone da aba do navegador e o do celular.'],
-  ['wide', 'brand_logo_wide', 'Logo horizontal · fundo claro', 'Opcional. 600 × 160 px, PNG ou SVG transparente. Substitui ícone + nome no topo do app.'],
-  ['wide_dark', 'brand_logo_wide_dark', 'Logo horizontal · fundo escuro', 'Opcional. Versão clara da logo, para a tela de login e o painel.'],
+  ['icon', 'brand_logo', 'Ícone', 'Quadrado (ex.: 1024 × 1024 px), PNG ou SVG transparente. Vira o símbolo ao lado do nome, o ícone da aba e o do celular.'],
+  ['wide', 'brand_logo_wide', 'Logo horizontal · fundo claro', 'Opcional. Proporção 15:4 (ex.: 2400 × 640 px), PNG ou SVG transparente, texto escuro. Aparece no topo do app.'],
+  ['wide_dark', 'brand_logo_wide_dark', 'Logo horizontal · fundo escuro', 'Opcional. Mesma logo com texto claro. Aparece na tela de login e no menu do painel.'],
 ];
 function logoFields(s) {
   return `<div class="full logo-row">${LOGO_KINDS.map(([t, k, label, hint]) => `<div class="field img-field brand-logo-field" data-logo="${t}"><label>${label}</label>
