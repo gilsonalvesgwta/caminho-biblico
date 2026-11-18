@@ -677,7 +677,7 @@ function productModal(p = {}, startTab = 'geral') {
         const file = e.target.files[0]; if (!file) return;
         try {
           box.querySelector('.img-box').classList.add('is-loading');
-          const { data, warn } = await prepareImage(file, { maxWidth: target === 'logo' ? 800 : 1600, keepRatio: target === 'logo' });
+          const { data, warn } = await prepareImage(file, { maxWidth: target === 'logo' ? 900 : 1600, keepRatio: target === 'logo', logo: target === 'logo' });
           const r = await api(`/api/admin/products/${p.id}/image`, { method: 'POST', body: { target, data } });
           state[target === 'logo' ? 'logo_url' : 'cover_url'] = r.url; p[target === 'logo' ? 'logo_url' : 'cover_url'] = r.url;
           box.querySelector('.img-box').innerHTML = `<img src="${esc(r.url)}" alt="">`;
@@ -735,20 +735,42 @@ function coverField(target, label, url, videoUrl) {
   </div>`;
 }
 const readDataUrl = (file) => new Promise((r, j) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => j(new Error('Não foi possível ler o arquivo.')); fr.readAsDataURL(file); });
-async function prepareImage(file, { maxWidth = 1920, keepRatio = false } = {}) {
+async function prepareImage(file, { maxWidth = 1920, keepRatio = false, logo = false } = {}) {
   if (file.type === 'image/svg+xml') { if (file.size > 1024 * 1024) throw new Error('SVG muito grande (máximo 1 MB).'); return { data: await readDataUrl(file), warn: '' }; }
   if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error('Use uma imagem JPG, PNG ou WebP.');
   const url = URL.createObjectURL(file);
   const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Não foi possível ler a imagem.')); i.src = url; }).finally(() => setTimeout(() => URL.revokeObjectURL(url), 1000));
   const ratio = img.naturalWidth / img.naturalHeight;
-  const warn = !keepRatio && Math.abs(ratio - 16 / 9) > 0.05 ? `A imagem tem ${img.naturalWidth}×${img.naturalHeight}. Ela será cortada para 16:9.` : '';
-  const scale = Math.min(1, maxWidth / img.naturalWidth);
-  if (scale === 1 && file.size <= 1.5 * 1024 * 1024) return { data: await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(file); }), warn };
+  let warn = !keepRatio && Math.abs(ratio - 16 / 9) > 0.05 ? `A imagem tem ${img.naturalWidth}×${img.naturalHeight}. Ela será cortada para 16:9.` : '';
+  // Logo: mantém a transparência, remove a sobra transparente em volta (centraliza de verdade) e avisa se vier com fundo
+  let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight, alpha = false;
+  if (logo) {
+    const probe = document.createElement('canvas'); const pw = Math.min(600, sw), ph = Math.round(pw / ratio);
+    probe.width = pw; probe.height = ph; const pc = probe.getContext('2d', { willReadFrequently: true }); pc.drawImage(img, 0, 0, pw, ph);
+    const px = pc.getImageData(0, 0, pw, ph).data;
+    let x0 = pw, y0 = ph, x1 = -1, y1 = -1;
+    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) if (px[(y * pw + x) * 4 + 3] > 10) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    const corner = [0, pw - 1, (ph - 1) * pw, ph * pw - 1].every((i) => px[i * 4 + 3] > 245);
+    alpha = !corner;
+    if (corner) warn = 'Esta logo tem fundo. Para um acabamento premium, use PNG ou SVG com fundo transparente.';
+    else if (x1 > x0 && y1 > y0) {
+      const k = sw / pw, pad = Math.round(Math.max(x1 - x0, y1 - y0) * 0.04);
+      sx = Math.max(0, Math.floor((x0 - pad) * k)); sy = Math.max(0, Math.floor((y0 - pad) * k));
+      sw = Math.min(img.naturalWidth - sx, Math.ceil((x1 - x0 + 1 + pad * 2) * k)); sh = Math.min(img.naturalHeight - sy, Math.ceil((y1 - y0 + 1 + pad * 2) * k));
+    }
+  }
+  const trimmed = sx || sy || sw !== img.naturalWidth || sh !== img.naturalHeight;
+  const scale = Math.min(1, maxWidth / Math.max(sw, keepRatio ? sh : 0));
+  if (!trimmed && scale === 1 && file.size <= 1.5 * 1024 * 1024) return { data: await readDataUrl(file), warn };
   const c = document.createElement('canvas');
-  c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  let data = keepRatio && file.type === 'image/png' ? c.toDataURL('image/png') : c.toDataURL('image/webp', 0.86);
-  if (!data.startsWith('data:image/webp')) data = c.toDataURL('image/jpeg', 0.86);
+  c.width = Math.max(1, Math.round(sw * scale)); c.height = Math.max(1, Math.round(sh * scale));
+  const cx = c.getContext('2d'); cx.imageSmoothingQuality = 'high';
+  cx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  // PNG/WebP com transparência continuam transparentes; só fotos sem transparência viram JPG/WebP comprimido
+  const keepAlpha = alpha || (keepRatio && file.type !== 'image/jpeg');
+  let data;
+  if (keepAlpha) { data = c.toDataURL('image/webp', 0.92); if (!data.startsWith('data:image/webp')) data = c.toDataURL('image/png'); }
+  else { data = c.toDataURL('image/webp', 0.86); if (!data.startsWith('data:image/webp')) data = c.toDataURL('image/jpeg', 0.86); }
   return { data, warn };
 }
 function bindCovers(m, lid) { m.querySelectorAll('.cover-field').forEach((box) => bindCover(box, lid)); }
@@ -1018,7 +1040,7 @@ function bindLogoFields(root, s) {
       const ib = box.querySelector('.img-box');
       try {
         ib.classList.add('is-loading');
-        const { data } = await prepareImage(file, { maxWidth: t === 'icon' ? 512 : 1200, keepRatio: true });
+        const { data } = await prepareImage(file, { maxWidth: t === 'icon' ? 512 : 1200, keepRatio: true, logo: true });
         const r = await api('/api/admin/settings/logo', { method: 'POST', body: { target: t, data } });
         s[key] = r.url; refreshBrand(t, r.url); redraw(); toast('Logo atualizada. Os alunos veem a nova logo no próximo acesso.', { ms: 4000 });
       } catch (er) { ib.classList.remove('is-loading'); toast(er.message, { error: true }); }

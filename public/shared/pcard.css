@@ -55,3 +55,7 @@ a.pcard2:hover .pc-cta { gap: 10px; background: color-mix(in srgb, var(--ink-900
 .is-store .pc-cta svg { color: color-mix(in srgb, var(--gold-500) 70%, var(--ink-900)); }
 div.pcard2.is-store .pc-cta { opacity: .6; }
 @media (max-width: 640px) { .pc-body { padding: 16px 16px 16px; } .pc-title { font-size: 20px; min-height: 0; } .pc-tag { min-height: 0; } .pc-tag:empty { display: none; } .pc-prog { min-height: 0; } .pgrid { gap: 16px; } }
+/* logo transparente: luz suave atrás, para destacar sem caixa em volta */
+.pc-art.has-logo::after { content: ""; position: absolute; left: 50%; top: 50%; width: 70%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--gold-300) 22%, transparent), color-mix(in srgb, var(--gold-300) 6%, transparent) 55%, transparent 100%); }
+.pc-art.has-logo .pc-logo { max-width: 58%; max-height: 74%; filter: drop-shadow(0 6px 18px rgba(0,0,0,.45)) drop-shadow(0 0 1px rgba(0,0,0,.3)); }

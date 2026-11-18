@@ -249,7 +249,7 @@ function pageHome(p) {
   shell(`
     ${isMulti() ? `<a class="back no-print" href="/" data-link>${ICON.back} Meus conteúdos</a>` : ''}
     <section class="hero">
-      ${p.cover ? `<div class="hero-cover" style="background-image:url('${esc(p.cover)}')"></div>` : ''}
+      ${p.cover ? `<div class="hero-cover" style="background-image:url('${esc(p.cover)}')"></div>` : p.logo && isMulti() ? `<div class="hero-logo" aria-hidden="true"><img src="${esc(p.logo)}" alt=""></div>` : ''}
       <div class="hero-row">${ring(done, L.length)}<div><div class="eyebrow" style="color:var(--gold-300)">${esc(p.name)}</div><h1 style="margin-top:6px">${finished ? `Você concluiu, <em>${esc(name)}</em>.` : `Olá, <em>${esc(name || 'seja bem-vindo')}</em>.`}</h1>
       <p class="muted" style="margin:6px 0 0">${finished ? (isChallenge ? `Que Deus continue a obra que começou em você nestes ${L.length} dias.` : 'Parabéns por concluir todo o conteúdo.') : current ? `${isChallenge ? 'Hoje' : 'Agora'}: ${esc(current.title)}` : isChallenge ? 'Cada dia tem uma aula curta e uma atividade prática.' : esc(p.tagline || '')}</p></div></div>
       <div class="hero-cta">${cta || ''}</div>

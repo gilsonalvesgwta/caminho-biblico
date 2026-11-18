@@ -10,7 +10,7 @@ const LOCK = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke
 /** Capa: a imagem enviada, inteira e sem nada por cima; sem imagem, uma capa tipográfica com as cores do produto */
 export function coverHtml({ cover, logo, name, kindLabel, mentor }) {
   if (cover) return `<div class="pc-cover has-img"><img src="${esc(cover)}" alt="" loading="lazy" decoding="async"></div>`;
-  return `<div class="pc-cover"><div class="pc-art"><span class="pc-frame"></span>
+  return `<div class="pc-cover"><div class="pc-art ${logo ? 'has-logo' : ''}"><span class="pc-frame"></span>
     ${logo ? `<img class="pc-logo" src="${esc(logo)}" alt="">` : `<div class="pc-type"><span class="pc-type-k">${esc(kindLabel || '')}</span><span class="pc-type-n">${esc(name || '')}</span>${mentor ? `<span class="pc-type-m">${esc(mentor)}</span>` : ''}</div>`}</div></div>`;
 }
 

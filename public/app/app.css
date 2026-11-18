@@ -395,3 +395,9 @@ main.page.wide { max-width: 980px; }
 .hero-cover { left: auto; width: 64%; opacity: 1; mix-blend-mode: normal; background-position: center; -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.55) 30%, #000 70%); mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.55) 30%, #000 70%); }
 .hero-cover::after { background: linear-gradient(90deg, var(--ink-900) 0%, color-mix(in srgb, var(--ink-900) 30%, transparent) 45%, transparent 100%), linear-gradient(0deg, color-mix(in srgb, var(--ink-900) 55%, transparent), transparent 55%); }
 @media (max-width: 640px) { .hero-cover { width: 100%; opacity: .38; -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 85%); mask-image: linear-gradient(180deg, #000 0%, transparent 85%); } }
+/* logo do produto no topo da jornada (quando não há capa) */
+.hero-logo { position: absolute; right: 4%; top: 50%; transform: translateY(-50%); width: 32%; height: 78%; display: grid; place-items: center; pointer-events: none; }
+.hero-logo::before { content: ""; position: absolute; width: 90%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(closest-side, color-mix(in srgb, var(--gold-300) 20%, transparent), transparent 100%); }
+.hero-logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 10px 30px rgba(0,0,0,.45)); }
+@media (max-width: 640px) { .hero-logo { right: -6%; width: 46%; height: 70%; opacity: .22; } }
+.hero > .hero-logo { position: absolute; z-index: 0; }
