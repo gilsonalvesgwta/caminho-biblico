@@ -571,13 +571,19 @@ function previewHero(p, theme) {
 async function pageContent() {
   const { rows } = await api('/api/admin/products');
   $('#main').innerHTML = head('Produtos', 'Cada produto tem a sua identidade visual, as suas aulas e o seu vínculo com a Greenn.', can('admin') ? '<button class="btn btn-primary" id="np">+ Novo produto</button>' : '') + `
-    <div class="prod-grid">${rows.map((p) => `<div class="panel prod">
+    <div class="prod-grid">${rows.map((p) => `<div class="panel prod ${p.active ? '' : 'is-off'}">
       <a class="prod-pv" href="${BASE}/conteudo/${p.id}" data-go="/conteudo/${p.id}">${previewCard(p, p.theme_obj)}</a>
-      <div class="panel-b"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="eyebrow">${esc(KIND[p.kind])}</span><span>${p.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge">Inativo</span>'}${p.show_in_store ? ' <span class="badge gold">Na vitrine</span>' : ''}</span></div>
+      <div class="panel-b"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="eyebrow">${esc(KIND[p.kind])}</span><span class="prod-status">${p.show_in_store && p.active ? '<span class="badge gold">Na vitrine</span>' : ''}${can('admin') ? `<label class="toggle" title="${p.active ? 'Desativar' : 'Ativar'} produto"><input type="checkbox" data-active="${p.id}" ${p.active ? 'checked' : ''}><i></i><span>${p.active ? 'Ativo' : 'Desativado'}</span></label>` : p.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge">Desativado</span>'}</span></div>
       <dl class="kv" style="grid-template-columns:118px 1fr;margin-top:12px"><dt>Greenn</dt><dd>${p.greenn_ids ? p.greenn_ids.split(',').map((x) => `<span class="badge ink">${esc(x)}</span>`).join(' ') : '<span class="badge warn">Não vinculado</span>'}</dd><dt>${esc(p.kind === 'bonus' ? 'Materiais' : (p.unit_label || 'Dia') + 's')}</dt><dd>${p.kind === 'bonus' ? (p.materials || []).length : p.lessons}</dd><dt>Alunos ativos</dt><dd>${p.students}</dd>${p.kind !== 'bonus' ? `<dt>Liberação</dt><dd>${{ after_complete: `${p.release_delay_hours}h após concluir`, drip: 'Por calendário', sequential: 'Ao concluir o anterior', open: 'Tudo liberado' }[p.release_mode]}</dd>` : ''}</dl>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><a class="btn btn-soft btn-sm" href="${BASE}/conteudo/${p.id}" data-go="/conteudo/${p.id}">${p.kind === 'bonus' ? 'Abrir' : 'Aulas e conteúdo'}</a>${can('admin') ? `<button class="btn btn-ghost btn-sm" data-edit="${p.id}">Configurar e identidade</button>` : ''}</div></div></div>`).join('')}</div>`;
   $('#np')?.addEventListener('click', () => productModal());
   $$('[data-edit]').forEach((b) => (b.onclick = () => productModal(rows.find((x) => String(x.id) === b.dataset.edit))));
+  $$('[data-active]').forEach((c) => c.addEventListener('change', async () => {
+    const p = rows.find((x) => String(x.id) === c.dataset.active);
+    if (!c.checked && !confirm(`Desativar "${p.name}"?\n\n• Os alunos deixam de ver este produto no app.\n• Novas compras na Greenn não liberam acesso enquanto estiver desativado.\n• O progresso e as respostas ficam guardados: ao reativar, tudo volta como estava.`)) { c.checked = true; return; }
+    try { await api(`/api/admin/products/${p.id}`, { method: 'PUT', body: { active: c.checked } }); toast(c.checked ? 'Produto ativado' : 'Produto desativado'); pageContent(); }
+    catch (er) { c.checked = !c.checked; toast(er.message, { error: true }); }
+  }));
 }
 
 function productModal(p = {}, startTab = 'geral') {
@@ -591,6 +597,7 @@ function productModal(p = {}, startTab = 'geral') {
     <div class="tabs" id="ptabs"><button type="button" data-t="geral">Geral</button><button type="button" data-t="visual">Identidade visual</button><button type="button" data-t="vitrine">Vitrine e vendas</button></div>
     <form id="pf">
     <section data-sec="geral" class="form-grid">
+      <div class="full status-bar"><label class="toggle"><input type="checkbox" name="active" ${p.active !== 0 ? 'checked' : ''}><i></i><span data-active-label>${p.active !== 0 ? 'Produto ativo' : 'Produto desativado'}</span></label><span class="hint" style="margin:0">Desativado, o produto some do app dos alunos e novas compras não liberam acesso. O progresso fica guardado.</span></div>
       <div class="field"><label>Nome completo</label><input class="input" name="name" value="${esc(p.name)}" required></div>
       <div class="field"><label>Nome curto (topo do app)</label><input class="input" name="short_name" value="${esc(p.short_name)}" placeholder="Ex.: Caminho Bíblico"></div>
       <div class="field"><label>Identificador na URL</label><input class="input" name="slug" value="${esc(p.slug)}" placeholder="desafio-7-dias" required><span class="hint">Endereço do produto: /p/<b>${esc(p.slug || 'identificador')}</b></span></div>
@@ -601,10 +608,9 @@ function productModal(p = {}, startTab = 'geral') {
       <div class="field"><label>IDs do produto na Greenn</label><input class="input" name="greenn_ids" value="${esc(p.greenn_ids)}" placeholder="Ex.: 123456, 123457"><span class="hint">Número da URL de edição do produto na Greenn. Vários separados por vírgula.</span></div>
       <div class="field"><label>Duração do acesso (dias)</label><input class="input" name="access_days" type="number" min="1" value="${esc(p.access_days ?? '')}" placeholder="Vazio = vitalício"></div>
       <div class="field"><label>Liberação das aulas</label>${opt('release_mode', [['after_complete', 'X horas após concluir a anterior'], ['sequential', 'Na hora, ao concluir a anterior'], ['drip', 'Por calendário (dias após a compra)'], ['open', 'Tudo liberado de uma vez']], p.release_mode || 'after_complete')}</div>
-      <div class="field"><label>Intervalo de liberação (horas)</label><input class="input" name="release_delay_hours" type="number" min="0" value="${esc(p.release_delay_hours ?? 24)}"></div>
+      <div class="field"><label>Intervalo de liberação (horas)</label><input class="input" name="release_delay_hours" type="number" min="0" value="${esc(p.release_delay_hours ?? 24)}"><span class="hint" data-delay-hint></span></div>
       <div class="field full"><label>Materiais para download (um por linha: Título | URL)</label><textarea class="input" name="materials" placeholder="Guia rápido | https://…/guia.pdf">${esc(mats)}</textarea></div>
       <label class="switch full"><input type="checkbox" name="show_live" ${p.show_live ? 'checked' : ''}> Mostrar o convite da aula ao vivo neste produto</label>
-      <label class="switch full"><input type="checkbox" name="active" ${p.active !== 0 ? 'checked' : ''}> Produto ativo</label>
     </section>
     <section data-sec="visual" hidden>
       <div class="visual-grid"><div>
@@ -647,6 +653,18 @@ function productModal(p = {}, startTab = 'geral') {
     m.querySelector('[data-font]').addEventListener('change', (e) => { theme.font = e.target.value; loadFont(theme.font); live(); });
     m.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => { const c = PRESETS[Number(b.dataset.preset)][1]; ['primary', 'accent', 'secondary'].forEach((k) => setColor(k, c[k])); }));
     f.addEventListener('input', (e) => { if (!e.target.matches('[data-color],[data-hex]')) live(); });
+    // campos que só fazem sentido em alguns modos
+    const syncRelease = () => {
+      const kind = f.kind.value, mode = f.release_mode.value, delay = f.release_delay_hours;
+      const bonus = kind === 'bonus';
+      f.release_mode.disabled = bonus;
+      delay.disabled = bonus || mode !== 'after_complete';
+      const hints = { sequential: 'Não se aplica: a próxima aula libera assim que a anterior é concluída.', drip: 'Não se aplica: no calendário, cada aula tem o seu dia definido na própria aula.', open: 'Não se aplica: todas as aulas ficam liberadas de uma vez.' };
+      m.querySelector('[data-delay-hint]').textContent = bonus ? 'Não se aplica a materiais para download.' : mode === 'after_complete' ? 'Ex.: 24 = a próxima aula libera 24 horas depois de concluir a anterior.' : hints[mode];
+      m.querySelector('[data-active-label]').textContent = f.active.checked ? 'Produto ativo' : 'Produto desativado';
+    };
+    ['kind', 'release_mode', 'active'].forEach((n) => f[n].addEventListener('change', syncRelease));
+    syncRelease();
     // imagens (logo e capa)
     m.querySelectorAll('.img-field').forEach((box) => {
       const target = box.dataset.target;

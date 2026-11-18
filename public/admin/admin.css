@@ -235,3 +235,17 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .meta-soon { display: flex; gap: 16px; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); background: #FAF8F3; border-radius: 0 0 16px 16px; }
 .steps-list { margin: 0 0 18px; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
 .chart.tall { height: 300px; }
+
+/* Ativar / desativar produto */
+.toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text-2); user-select: none; }
+.toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.toggle i { width: 36px; height: 20px; border-radius: 999px; background: #D9D3C5; position: relative; transition: background .15s; flex: none; }
+.toggle i::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .15s; }
+.toggle input:checked + i { background: #1F6B52; }
+.toggle input:checked + i::after { transform: translateX(16px); }
+.toggle input:checked ~ span { color: #1F6B52; }
+.toggle input:focus-visible + i { outline: 2px solid var(--gold-500); outline-offset: 2px; }
+.prod-status { display: inline-flex; align-items: center; gap: 8px; }
+.prod.is-off .prod-pv { filter: grayscale(.85); opacity: .55; }
+.status-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 14px; border-radius: 12px; background: #FAF8F3; border: 1px solid var(--line); margin-bottom: 4px; }
+.input:disabled { opacity: .5; cursor: not-allowed; background: #F3F0E8; }
