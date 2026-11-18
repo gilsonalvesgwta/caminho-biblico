@@ -12,6 +12,7 @@ const ICONS = {
   dash: I('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
   users: I('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .7 3.2 2.4 3.6 5.2"/>'),
   sales: I('<path d="M3 7h18v12H3z"/><path d="M3 11h18M7 15h3"/>'),
+  money: I('<path d="M4 19V5M4 19h16"/><path d="M8 15l3.5-4 3 2.5L20 7"/><path d="M16 7h4v4"/>'),
   leads: I('<path d="M12 3l2.6 5.5 6 .8-4.4 4.2 1.1 6L12 16.6 6.7 19.5l1.1-6L3.4 9.3l6-.8z"/>'),
   voice: I('<path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8M8 12h5"/>'),
   content: I('<path d="M4 4h12l4 4v12H4z"/><path d="M8 12h8M8 16h5M15 4v4h4"/>'),
@@ -22,7 +23,7 @@ const ICONS = {
   mark: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M6 8h12" stroke="#E6CD97" stroke-width="1.8" stroke-linecap="round"/><path d="M4.5 19.5c2.4-1.3 4.9-2 7.5-2s5.1.7 7.5 2" stroke="#7FB8A2" stroke-width="1.6" stroke-linecap="round"/></svg>',
 };
 const NAV = [
-  ['Operação', [['', 'Visão geral', 'dash'], ['/alunos', 'Alunos', 'users'], ['/vendas', 'Vendas', 'sales'], ['/leads', 'Leads qualificados', 'leads'], ['/vozes', 'Depoimentos e recados', 'voice']]],
+  ['Operação', [['', 'Visão geral', 'dash'], ['/financeiro', 'Financeiro', 'money'], ['/alunos', 'Alunos', 'users'], ['/vendas', 'Vendas', 'sales'], ['/leads', 'Leads qualificados', 'leads'], ['/vozes', 'Depoimentos e recados', 'voice']]],
   ['Produto', [['/conteudo', 'Produtos e conteúdo', 'content'], ['/integracoes', 'Greenn e integrações', 'plug']]],
   ['Sistema', [['/config', 'Configurações', 'gear'], ['/equipe', 'Equipe', 'team'], ['/auditoria', 'Auditoria', 'log']]],
 ];
@@ -47,7 +48,7 @@ async function route() {
   const path = location.pathname.replace(/^\/admin/, '').replace(/\/+$/, '') || '';
   if (!ME) { try { ME = await api('/api/admin/me'); } catch { return pageLogin(); } }
   const pages = [
-    [/^$/, pageDash], [/^\/alunos$/, pageStudents], [/^\/alunos\/(\d+)$/, pageStudent], [/^\/vendas$/, pageSales], [/^\/leads$/, pageLeads],
+    [/^$/, pageDash], [/^\/alunos$/, pageStudents], [/^\/alunos\/(\d+)$/, pageStudent], [/^\/vendas$/, pageSales], [/^\/financeiro$/, pageFinance], [/^\/leads$/, pageLeads],
     [/^\/vozes$/, pageVoices], [/^\/conteudo$/, pageContent], [/^\/conteudo\/(\d+)$/, pageProduct], [/^\/integracoes$/, pageIntegrations],
     [/^\/config$/, pageSettings], [/^\/equipe$/, pageTeam], [/^\/auditoria$/, pageAudit],
   ];
@@ -58,10 +59,11 @@ async function route() {
 function layout(path) {
   if (!$('#main')) {
     root.innerHTML = `<div class="mobile-top"><button id="burger" aria-label="Menu">☰</button><b class="serif">Painel</b></div><div class="layout">
-      <aside class="side"><a class="brand" href="${BASE}" data-go=""><span class="brand-mark">${ICONS.mark}</span><span><b>${esc(ME.brand)}</b><small>Painel</small></span></a>
+      <aside class="side"><a class="brand" href="${BASE}" data-go="">${ME.brandLogoDark ? `<span class="brand-wide"><img src="${esc(ME.brandLogoDark)}" alt="${esc(ME.brand)}"></span>` : `${ME.brandLogo ? `<span class="brand-mark brand-icon"><img src="${esc(ME.brandLogo)}" alt=""></span>` : `<span class="brand-mark">${ICONS.mark}</span>`}<span><b>${esc(ME.brand)}</b><small>Painel</small></span>`}</a>
       <nav id="nav"></nav>
       <div class="side-foot"><b>${esc(ME.admin.name)}</b>${esc(ROLE[ME.admin.role])} · <a href="${ME.appUrl}" target="_blank" style="color:var(--ink-300)">ver app ↗</a><br><button id="pwd">Trocar senha</button> · <button id="logout">Sair</button></div></aside>
       <div class="content" id="main"></div></div>`;
+    if (ME.brandLogo) { const l = document.querySelector('link[rel="icon"]'); if (l) { l.href = ME.brandLogo; l.removeAttribute('type'); } }
     $('#burger').onclick = () => document.body.classList.toggle('nav-open');
     $('#logout').onclick = async () => { await api('/api/admin/logout', { method: 'POST' }); ME = null; location.href = BASE; };
     $('#pwd').onclick = changePassword;
@@ -79,9 +81,13 @@ function changePassword() {
     onMount: (m, close) => m.querySelector('#cp').addEventListener('submit', async (e) => { e.preventDefault(); try { await api('/api/admin/me/password', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); toast('Senha atualizada'); close(); } catch (er) { toast(er.message, { error: true }); } }) });
 }
 
-function pageLogin() {
+async function pageLogin() {
+  const B = await api('/api/app/brand').catch(() => ({}));
+  if (B.brand_logo) { const l = document.querySelector('link[rel="icon"]'); if (l) { l.href = B.brand_logo; l.removeAttribute('type'); } }
+  const logoBlock = B.brand_logo_wide ? `<img src="${esc(B.brand_logo_wide)}" alt="${esc(B.brand_name || '')}" style="height:42px;max-width:240px;object-fit:contain;object-position:left"><div class="eyebrow" style="margin-left:auto">Painel</div>`
+    : B.brand_logo ? `<img src="${esc(B.brand_logo)}" alt="" style="width:38px;height:38px;border-radius:11px;object-fit:contain"><div><div class="eyebrow">Painel administrativo</div><b class="serif" style="font-size:18px;font-weight:500">${esc(B.brand_name || '')}</b></div>` : '';
   root.innerHTML = `<div style="min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(700px 400px at 0% 0%, rgba(31,107,82,.4), transparent 60%),radial-gradient(600px 400px at 100% 100%, rgba(201,164,92,.22), transparent 60%),var(--ink-950)">
-    <div class="panel" style="width:min(400px,100%);padding:30px"><div style="display:flex;gap:10px;align-items:center;margin-bottom:22px"><span class="brand-mark" style="width:38px;height:38px;border-radius:11px;background:var(--ink-900);display:grid;place-items:center">${ICONS.mark.replace('viewBox', 'width="20" viewBox')}</span><div><div class="eyebrow">Painel administrativo</div><b class="serif" style="font-size:18px;font-weight:500">O Caminho Bíblico do Dinheiro</b></div></div>
+    <div class="panel" style="width:min(400px,100%);padding:30px"><div style="display:flex;gap:10px;align-items:center;margin-bottom:22px">${logoBlock || `<span class="brand-mark" style="width:38px;height:38px;border-radius:11px;background:var(--ink-900);display:grid;place-items:center">${ICONS.mark.replace('viewBox', 'width="20" viewBox')}</span><div><div class="eyebrow">Painel administrativo</div><b class="serif" style="font-size:18px;font-weight:500">O Caminho Bíblico do Dinheiro</b></div>`}</div>
     <div id="msg"></div><form id="lf"><div class="field"><label>E-mail</label><input class="input" name="email" type="email" autocomplete="username" required></div><div class="field"><label>Senha</label><input class="input" name="password" type="password" autocomplete="current-password" required></div><button class="btn btn-primary btn-block">Entrar</button></form></div></div>`;
   $('#lf').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -145,11 +151,11 @@ async function pageDash(days = 30) {
     `<div class="tabs" style="margin:0">${[7, 30, 90].map((n) => `<button data-days="${n}" class="${n === d.days ? 'on' : ''}">${n} dias</button>`).join('')}</div>`) + `
     ${!ME.webhookConfigured || d.whIssues ? `<div class="alert alert-warn">${d.whIssues ? `${d.whIssues} evento(s) da Greenn com erro ou produto não vinculado nos últimos 7 dias. <a href="${BASE}/integracoes" data-go="/integracoes">Ver integrações</a>` : 'Configure o webhook da Greenn para liberar acessos automaticamente.'}</div>` : ''}
     <div class="cols">
-      <div class="panel kpi dark c3"><div class="l">Receita (${d.days}d)</div><div class="v">${brl(d.revenue)}</div><div class="s">${d.sales} vendas · ticket ${brl(d.ticket)}</div></div>
+      <a class="panel kpi dark c3 kpi-link" href="${BASE}/financeiro" data-go="/financeiro"><div class="l">Faturamento bruto (${d.days}d)<span>Financeiro →</span></div><div class="v">${brl(d.fin.gross)}</div><div class="s">Líquido ${brl(d.fin.net)} · ${d.fin.approved} vendas · ticket ${brl(d.fin.ticket)}</div></a>
       <div class="panel kpi c3"><div class="l">Alunos ativos</div><div class="v">${d.students.toLocaleString('pt-BR')}</div><div class="s">+${d.newStudents} no período · ${d.active7} ativos em 7d</div></div>
       <div class="panel kpi c3"><div class="l">Conclusão do desafio</div><div class="v">${enrolled ? pct(finished / enrolled) : '—'}</div><div class="s">${finished} de ${enrolled} concluíram o Dia 7</div></div>
-      <div class="panel kpi c3"><div class="l">Reembolsos</div><div class="v">${pct(d.refundRate)}</div><div class="s">${d.refunds} no período · ${d.pending} aguardando pagamento</div></div>
-      <div class="panel c8"><div class="panel-h"><h3>Receita por dia</h3><span class="faint">Vendas pagas, horário de Brasília</span></div><div class="panel-b"><div class="chart" id="ch"></div></div></div>
+      <div class="panel kpi c3"><div class="l">Reembolsos e chargebacks</div><div class="v">${pct(d.fin.refundRate)}</div><div class="s">${brl(d.fin.refundValue)} · ${d.fin.refundCount} no período · ${d.pending} aguardando pagamento</div></div>
+      <div class="panel c8"><div class="panel-h"><h3>Receita por dia</h3><span class="faint">Vendas pagas, horário de Brasília · <a href="${BASE}/financeiro" data-go="/financeiro">financeiro completo →</a></span></div><div class="panel-b"><div class="chart" id="ch"></div></div></div>
       <div class="panel c4"><div class="panel-h"><h3>Próxima aula ao vivo</h3></div><div class="panel-b">${d.nextLive ? `<div class="serif" style="font-size:22px">${esc(new Date(d.nextLive.startsAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' }))}</div><p class="muted" style="margin-top:6px">${esc(d.nextLive.title)}</p>` : '<p class="muted">Aula ao vivo desativada.</p>'}
         <div class="cols" style="margin-top:14px"><div class="c6"><div class="faint" style="font-size:12px;font-weight:700">Querem a aula</div><div class="serif" style="font-size:28px">${d.live}</div></div><div class="c6"><div class="faint" style="font-size:12px;font-weight:700">Leads quentes (score ≥ 60)</div><div class="serif" style="font-size:28px">${d.hot}</div></div></div>
         <a class="btn btn-primary btn-sm" style="margin-top:12px" href="${BASE}/leads" data-go="/leads">Ver leads qualificados</a></div></div>
@@ -167,6 +173,157 @@ async function pageDash(days = 30) {
   barChart($('#ch'), d.series, { days: d.days });
   $$('[data-days]').forEach((b) => (b.onclick = () => pageDash(Number(b.dataset.days))));
   $$('tr[data-user]').forEach((tr) => tr.dataset.user && (tr.onclick = () => go(`/alunos/${tr.dataset.user}`)));
+}
+
+// ---------- financeiro ----------
+const FIN = { preset: '30', from: '', to: '' };
+const localDay = (delta = 0) => new Date(Date.now() - 3 * 3600e3 + delta * 86400e3).toISOString().slice(0, 10);
+const fmtDay = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
+const METHOD = { PIX: 'Pix', CREDIT_CARD: 'Cartão de crédito', CARD: 'Cartão de crédito', TWO_CREDIT_CARDS: 'Dois cartões', BOLETO: 'Boleto', BANK_SLIP: 'Boleto', PAYPAL: 'PayPal', DEBIT_CARD: 'Cartão de débito', '': 'Não informado' };
+const num = (v, d = 2) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }));
+function finRange() {
+  const today = localDay(0);
+  const [y, m] = today.split('-').map(Number);
+  const first = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-01`;
+  switch (FIN.preset) {
+    case 'today': return { from: today, to: today };
+    case '7': return { from: localDay(-6), to: today };
+    case '90': return { from: localDay(-89), to: today };
+    case 'month': return { from: first(y, m), to: today };
+    case 'last': { const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1; const end = new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10); return { from: first(py, pm), to: end }; }
+    case 'custom': return { from: FIN.from || localDay(-29), to: FIN.to || today };
+    default: return { from: localDay(-29), to: today };
+  }
+}
+/** Variação contra o período anterior */
+function delta(cur, prev, { invert = false, points = false } = {}) {
+  if (cur == null || prev == null) return '';
+  if (points) { const dp = (cur - prev) * 100; if (Math.abs(dp) < 0.05) return '<span class="delta">= anterior</span>'; const good = invert ? dp < 0 : dp > 0; return `<span class="delta ${good ? 'up' : 'down'}">${dp > 0 ? '▲' : '▼'} ${num(Math.abs(dp), 1)} p.p.</span>`; }
+  if (!prev) return cur ? '<span class="delta up">novo</span>' : '';
+  const r = (cur - prev) / Math.abs(prev);
+  if (Math.abs(r) < 0.0005) return '<span class="delta">= anterior</span>';
+  const good = invert ? r < 0 : r > 0;
+  return `<span class="delta ${good ? 'up' : 'down'}">${r > 0 ? '▲' : '▼'} ${num(Math.abs(r) * 100, 0)}%</span>`;
+}
+
+async function pageFinance() {
+  if (!can('admin')) { $('#main').innerHTML = head('Financeiro') + '<div class="alert alert-warn">Apenas administradores veem o financeiro.</div>'; return; }
+  const rg = finRange();
+  const [d, { rows: spend }, { rows: products }] = await Promise.all([api(`/api/admin/finance?from=${rg.from}&to=${rg.to}`), api(`/api/admin/marketing/spend?from=${rg.from}&to=${rg.to}`), api('/api/admin/products')]);
+  const c = d.cur, p = d.prev;
+  const presets = [['today', 'Hoje'], ['7', '7 dias'], ['30', '30 dias'], ['month', 'Este mês'], ['last', 'Mês passado'], ['90', '90 dias'], ['custom', 'Personalizado']];
+  const kpi = (label, value, sub, extra = '', cls = '') => `<div class="panel kpi c3 ${cls}"><div class="l">${label}${extra}</div><div class="v">${value}</div><div class="s">${sub}</div></div>`;
+  const hasSpend = c.spend > 0;
+  const fallLine = (label, v, kind, hint = '') => `<div class="wf-row ${kind}"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span><div class="wf-bar"><i style="width:${c.gross ? Math.min(100, (Math.abs(v) / c.gross) * 100) : 0}%"></i></div><b>${kind === 'minus' ? '− ' : ''}${brl(Math.abs(v))}</b></div>`;
+  const prodOpts = products.filter((x) => x.kind !== 'bonus').map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  $('#main').innerHTML = head('Financeiro', `${fmtDay(d.from)} a ${fmtDay(d.to)} · horário de Brasília · comparado a ${fmtDay(d.prevFrom)}–${fmtDay(d.prevTo)}`,
+    `<div class="tabs fin-tabs" style="margin:0">${presets.map(([k, l]) => `<button data-pre="${k}" class="${FIN.preset === k ? 'on' : ''}">${l}</button>`).join('')}</div>`) + `
+    ${FIN.preset === 'custom' ? `<div class="panel panel-b fin-custom"><div class="field"><label>De</label><input class="input" type="date" id="ff" value="${d.from}"></div><div class="field"><label>Até</label><input class="input" type="date" id="ft" value="${d.to}" max="${localDay(0)}"></div><button class="btn btn-primary btn-sm" id="fapply">Aplicar</button></div>` : ''}
+    <div class="cols">
+      ${kpi('Faturamento bruto', brl(c.gross), `${c.approved} venda(s) aprovada(s) · ticket ${brl(c.ticket)}`, delta(c.gross, p.gross), 'dark')}
+      ${kpi('Faturamento líquido', brl(c.net), `depois de taxas, reembolsos e chargebacks${c.netRealShare >= 0.999 || !c.kept.c ? '' : c.netRealShare > 0 ? ' · parte estimada' : ' · taxa estimada'}`, delta(c.net, p.net))}
+      ${kpi(hasSpend ? 'Lucro após marketing' : 'Investimento em marketing', hasSpend ? `<span class="${c.profit < 0 ? 'neg' : ''}">${brl(c.profit)}</span>` : brl(0), hasSpend ? `líquido − ${brl(c.spend)} investidos · margem ${c.margin == null ? '—' : pct(c.margin)}` : 'Lance os gastos abaixo para ver ROI e ROAS', hasSpend ? delta(c.profit, p.profit) : '')}
+      ${kpi('Reembolsos e chargebacks', brl(c.refunds.v + c.chargebacks.v), `${pct(c.refundRate)} das vendas · ${c.refunds.c} reembolso(s) · ${c.chargebacks.c} chargeback(s)`, delta(c.refundRate, p.refundRate, { invert: true, points: true }))}
+
+      <div class="panel c12"><div class="panel-h"><h3>Marketing</h3><span class="faint">${hasSpend ? `${spend.length} campanha(s) ou lançamento(s) no período` : 'Sem gastos lançados no período'}</span></div>
+        <div class="mk-grid">
+          <div><span>Investimento</span><b>${brl(c.spend)}</b>${delta(c.spend, p.spend, { invert: true })}</div>
+          <div><span>ROAS</span><b>${c.roas == null ? '—' : `${num(c.roas)}x`}</b><small>bruto ÷ investimento</small></div>
+          <div><span>ROI</span><b class="${c.roi < 0 ? 'neg' : ''}">${c.roi == null ? '—' : pct(c.roi)}</b><small>(líquido − invest.) ÷ invest.</small></div>
+          <div><span>Custo por venda (CAC)</span><b>${c.cac == null ? '—' : brl(c.cac)}</b><small>investimento ÷ vendas</small></div>
+          <div><span>Lucro</span><b class="${c.profit < 0 ? 'neg' : ''}">${brl(c.profit)}</b><small>líquido − investimento</small></div>
+          <div><span>Cliques · impressões</span><b>${c.clicks ? c.clicks.toLocaleString('pt-BR') : '—'}</b><small>${c.impressions ? `${c.impressions.toLocaleString('pt-BR')} impressões${c.clicks ? ` · CPC ${brl(c.spend / c.clicks)}` : ''}` : 'importando o CSV da Meta'}</small></div>
+        </div></div>
+
+      <div class="panel c8"><div class="panel-h"><h3>Faturamento por dia</h3><div class="legend"><span><i style="background:#C9D3DC"></i>Bruto</span><span><i style="background:#1F6B52"></i>Líquido</span><span><i class="ln"></i>Investimento</span></div></div><div class="panel-b"><div class="chart tall" id="fch"></div></div></div>
+      <div class="panel c4"><div class="panel-h"><h3>Do bruto ao lucro</h3></div><div class="panel-b wf">
+        ${fallLine('Faturamento bruto', c.gross, 'total')}
+        ${fallLine('Reembolsos', c.refunds.v, 'minus', `${c.refunds.c} venda(s)`)}
+        ${fallLine('Chargebacks', c.chargebacks.v, 'minus', `${c.chargebacks.c} venda(s)`)}
+        ${fallLine('Taxas da plataforma', c.fees, 'minus', c.netRealShare >= 0.999 && c.kept.c ? 'valor real da Greenn' : `${num(d.fee.percent)}% + ${brl(d.fee.fixed)} por venda`)}
+        ${fallLine('Faturamento líquido', c.net, 'sub')}
+        ${fallLine('Marketing', c.spend, 'minus')}
+        ${fallLine('Lucro', c.profit, c.profit < 0 ? 'neg-total' : 'total profit')}
+        <a class="faint" style="font-size:12px" href="${BASE}/config" data-go="/config">Ajustar a taxa usada na estimativa →</a>
+      </div></div>
+
+      <div class="panel c12"><div class="panel-h"><h3>Por produto</h3><span class="faint">vendas feitas no período</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Produto</th><th class="r">Vendas</th><th class="r">Bruto</th><th class="r">Reembolsos</th><th class="r">Líquido</th><th class="r">Investimento</th><th class="r">ROAS</th></tr></thead><tbody>
+        ${d.byProduct.map((r) => `<tr><td><b>${esc(r.name)}</b></td><td class="r">${r.c}</td><td class="r">${brl(r.gross)}</td><td class="r">${r.refunds ? `<span class="neg">${brl(r.refunds)}</span>` : '—'}</td><td class="r">${brl(r.net)}</td><td class="r">${r.spend ? brl(r.spend) : '—'}</td><td class="r">${r.roas == null ? '—' : `${num(r.roas)}x`}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nenhuma venda aprovada no período.</td></tr>'}
+        ${d.spendUnassigned ? `<tr><td class="faint">Investimento sem produto definido</td><td></td><td></td><td></td><td></td><td class="r">${brl(d.spendUnassigned)}</td><td></td></tr>` : ''}
+      </tbody></table></div></div>
+
+      <div class="panel c6"><div class="panel-h"><h3>Formas de pagamento</h3></div><div class="panel-b">
+        ${d.byMethod.length ? `<div class="funnel">${d.byMethod.map((r) => `<div class="fr fr-wide"><span>${esc(METHOD[r.method] || r.method)}</span><div class="bar"><i style="width:${c.gross ? (r.gross / c.gross) * 100 : 0}%"></i></div><span>${brl(r.gross)} · ${r.c}</span></div>`).join('')}</div>` : '<p class="muted">Sem vendas no período.</p>'}
+        <dl class="kv" style="margin-top:16px"><dt>Aguardando pagamento</dt><dd>${c.pending.c} pedido(s) · ${brl(c.pending.v)}</dd><dt>Recusadas</dt><dd>${c.refused}</dd><dt>Conversão de pedidos</dt><dd>${c.payRate == null ? '—' : pct(c.payRate)} <small class="faint">aprovadas ÷ (aprovadas + aguardando + recusadas)</small></dd><dt>Checkouts abandonados</dt><dd>${c.abandoned}</dd></dl>
+      </div></div>
+      <div class="panel c6"><div class="panel-h"><h3>Origem das vendas (UTM)</h3><span class="faint">utm_source · utm_campaign</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Origem</th><th>Campanha</th><th class="r">Vendas</th><th class="r">Bruto</th></tr></thead><tbody>
+        ${d.bySource.map((r) => `<tr><td>${r.source ? esc(r.source) : '<span class="faint">sem UTM</span>'}</td><td>${r.campaign ? esc(r.campaign) : '<span class="faint">—</span>'}</td><td class="r">${r.c}</td><td class="r">${brl(r.gross)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Sem vendas no período.</td></tr>'}
+      </tbody></table></div></div>
+
+      <div class="panel c12"><div class="panel-h"><h3>Gastos com marketing</h3><div class="actions"><button class="btn btn-soft btn-sm" id="mkimp">Importar CSV da Meta</button><button class="btn btn-primary btn-sm" id="mkadd">+ Lançar gasto</button></div></div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Campanha / descrição</th><th>Período</th><th>Produto</th><th>Origem</th><th class="r">Cliques</th><th class="r">Investido</th><th></th></tr></thead><tbody>
+        ${spend.map((r, i) => `<tr><td><b>${esc(r.campaign_name || 'Sem nome')}</b></td><td>${r.date_from === r.date_to ? fmtDay(r.date_from) : `${fmtDay(r.date_from).slice(0, 5)} a ${fmtDay(r.date_to)} <small class="faint">· ${r.days} dias</small>`}</td><td>${esc(r.product_name || 'Geral')}</td><td>${r.source === 'manual' ? '<span class="badge">Manual</span>' : r.source === 'meta' ? '<span class="badge ok">Meta Ads</span>' : '<span class="badge gold">CSV da Meta</span>'}</td><td class="r">${r.clicks ? r.clicks.toLocaleString('pt-BR') : '—'}</td><td class="r"><b>${brl(r.spend)}</b></td><td class="r"><button class="btn btn-ghost btn-sm" data-sdel="${i}">Excluir</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nenhum gasto no período. Lance manualmente ou importe o relatório do Gerenciador de Anúncios.</td></tr>'}
+        </tbody></table></div>
+        <div class="panel-b meta-soon"><div><b>Integração direta com a Meta Ads</b><p class="faint" style="margin:4px 0 0">Próxima etapa: conectar a conta de anúncios para os gastos, cliques e impressões entrarem sozinhos todos os dias, por campanha. Enquanto isso, o CSV do Gerenciador de Anúncios já alimenta ROAS, ROI e CAC.</p></div><span class="badge gold">Em breve</span></div>
+      </div>
+
+      <div class="panel c12"><div class="panel-h"><h3>Reembolsos e chargebacks do período</h3><a href="${BASE}/vendas" data-go="/vendas">Todas as vendas →</a></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Produto</th><th>Status</th><th class="r">Valor</th><th>Quando</th></tr></thead><tbody>
+        ${d.refundsList.map((s) => `<tr class="click" data-user="${s.user_id || ''}"><td>${who(s.name, s.email)}</td><td>${esc(s.product_name || s.provider_product_id)}</td><td>${badge(s.status)}</td><td class="r">${brl(s.amount)}</td><td>${fmtDateTime(s.refunded_at || s.updated_at)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum reembolso no período.</td></tr>'}
+      </tbody></table></div></div>
+    </div>`;
+  finChart($('#fch'), d.series);
+  $$('[data-pre]').forEach((b) => (b.onclick = () => { FIN.preset = b.dataset.pre; if (FIN.preset === 'custom' && !FIN.from) { FIN.from = d.from; FIN.to = d.to; } pageFinance(); }));
+  $('#fapply')?.addEventListener('click', () => { FIN.from = $('#ff').value; FIN.to = $('#ft').value; if (!FIN.from || !FIN.to) return toast('Escolha as duas datas', { error: true }); pageFinance(); });
+  $$('tr[data-user]').forEach((tr) => tr.dataset.user && (tr.onclick = () => go(`/alunos/${tr.dataset.user}`)));
+  $$('[data-sdel]').forEach((b) => (b.onclick = async () => {
+    const r = spend[Number(b.dataset.sdel)];
+    if (!confirm(r.source === 'manual' ? `Excluir o lançamento "${r.campaign_name || 'sem nome'}" (${brl(r.spend)})?` : `Excluir os gastos da campanha "${r.campaign_name || 'sem nome'}" entre ${fmtDay(d.from)} e ${fmtDay(d.to)}?`)) return;
+    try { await api(`/api/admin/marketing/spend?${qs({ source: r.source, grp: r.grp, from: d.from, to: d.to })}`, { method: 'DELETE' }); toast('Excluído'); pageFinance(); } catch (er) { toast(er.message, { error: true }); }
+  }));
+  $('#mkadd').onclick = () => modal({ title: 'Lançar gasto com marketing', eyebrow: 'Marketing', body: `<form id="sf2" class="form-grid">
+      <div class="field"><label>Data (ou início)</label><input class="input" type="date" name="date" value="${localDay(0)}" required></div>
+      <div class="field"><label>Até (opcional)</label><input class="input" type="date" name="date_to"><span class="hint">Para um período, o valor é dividido igualmente entre os dias.</span></div>
+      <div class="field"><label>Valor investido (R$)</label><input class="input" name="spend" inputmode="decimal" placeholder="Ex.: 350,00" required></div>
+      <div class="field"><label>Produto</label><select class="input" name="product_id"><option value="">Geral / vários produtos</option>${prodOpts}</select></div>
+      <div class="field full"><label>Campanha ou descrição</label><input class="input" name="campaign_name" placeholder="Ex.: Meta · Desafio 7 dias · Público frio"></div>
+      <div class="full"><button class="btn btn-primary">Lançar</button></div></form>`,
+    onMount: (m, close) => m.querySelector('#sf2').addEventListener('submit', async (e) => { e.preventDefault(); await withLoading(e.submitter, async () => { try { const r = await api('/api/admin/marketing/spend', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); close(); toast(r.days > 1 ? `${brl(r.total)} lançados em ${r.days} dias` : 'Gasto lançado'); pageFinance(); } catch (er) { toast(er.message, { error: true }); } }); }) });
+  $('#mkimp').onclick = () => modal({ title: 'Importar relatório da Meta', eyebrow: 'Marketing', wide: true, body: `<ol class="steps-list">
+      <li>No <b>Gerenciador de Anúncios</b>, escolha o período e o nível <b>Campanhas</b>.</li>
+      <li>Em <b>Detalhamento › Por tempo</b>, marque <b>Dia</b>.</li>
+      <li>Clique em <b>Exportar › Exportar dados da tabela › .csv</b>.</li>
+      <li>Envie o arquivo aqui. Reimportar o mesmo período <b>atualiza</b> os valores, sem duplicar.</li></ol>
+      <form id="imf" class="form-grid"><div class="field"><label>Arquivo CSV</label><input class="input" type="file" name="file" accept=".csv,text/csv" required></div>
+      <div class="field"><label>Produto das campanhas</label><select class="input" name="product_id"><option value="">Geral / vários produtos</option>${prodOpts}</select></div>
+      <div class="full"><button class="btn btn-primary">Importar</button></div></form>`,
+    onMount: (m, close) => m.querySelector('#imf').addEventListener('submit', async (e) => { e.preventDefault(); const f = e.target.file.files[0]; if (!f) return; if (f.size > 6 * 1024 * 1024) return toast('Arquivo muito grande (máximo 6 MB).', { error: true });
+      await withLoading(e.submitter, async () => { try { const csv = await f.text(); const r = await api('/api/admin/marketing/import', { method: 'POST', body: { csv, product_id: e.target.product_id.value } }); close(); toast(`${brl(r.total)} importados (${fmtDay(r.from)} a ${fmtDay(r.to)})`, { ms: 5000 }); pageFinance(); } catch (er) { toast(er.message, { error: true, ms: 7000 }); } }); }) });
+}
+
+/** Colunas agrupadas (bruto e líquido) com a linha de investimento */
+function finChart(el, pts) {
+  const W = 800, H = 300, pad = { l: 52, r: 8, t: 12, b: 24 };
+  const max = Math.max(...pts.map((p) => Math.max(p.gross, p.spend)), 0);
+  const nice = max ? Math.pow(10, Math.floor(Math.log10(max))) : 100; const top = max ? Math.ceil(max / nice) * nice : 100;
+  const bw = (W - pad.l - pad.r) / pts.length;
+  const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / top);
+  const bar = (x, w, v, fill) => { const h = H - pad.b - y(v); if (h <= 0) return ''; const r = Math.min(3, w / 2, h); return `<path d="M${x},${H - pad.b} v${-(h - r)} q0,${-r} ${r},${-r} h${w - 2 * r} q${r},0 ${r},${r} v${h - r} z" fill="${fill}"/>`; };
+  const grid = [0, 0.5, 1].map((f) => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(top * f)}" y2="${y(top * f)}" stroke="#EDE8DD"/><text x="${pad.l - 8}" y="${y(top * f) + 4}" text-anchor="end" font-size="11" fill="#7C8893">${(top * f).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</text>`).join('');
+  const step = Math.ceil(pts.length / 8);
+  const gw = Math.max(2, bw * 0.72), w1 = gw / 2;
+  const bars = pts.map((p, i) => { const x0 = pad.l + i * bw + (bw - gw) / 2; return `<g data-i="${i}"><rect x="${pad.l + i * bw}" y="${pad.t}" width="${bw}" height="${H - pad.t - pad.b}" fill="transparent"/>${bar(x0, w1, p.gross, '#C9D3DC')}${bar(x0 + w1, w1, p.net, '#1F6B52')}${i % step === 0 ? `<text x="${pad.l + i * bw + bw / 2}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#7C8893">${p.d.slice(8, 10)}/${p.d.slice(5, 7)}</text>` : ''}</g>`; }).join('');
+  const hasSpend = pts.some((p) => p.spend > 0);
+  const line = hasSpend ? `<polyline fill="none" stroke="#C9A45C" stroke-width="2.2" stroke-linejoin="round" points="${pts.map((p, i) => `${pad.l + i * bw + bw / 2},${y(p.spend)}`).join(' ')}"/>${pts.length <= 45 ? pts.map((p, i) => `<circle cx="${pad.l + i * bw + bw / 2}" cy="${y(p.spend)}" r="2.6" fill="#C9A45C"/>`).join('') : ''}` : '';
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Faturamento por dia">${grid}<line x1="${pad.l}" x2="${W - pad.r}" y1="${H - pad.b}" y2="${H - pad.b}" stroke="#D6CEBC"/>${bars}<g style="pointer-events:none">${line}</g></svg><div class="tip"></div>`;
+  const tip = el.querySelector('.tip');
+  el.querySelectorAll('g[data-i]').forEach((g) => {
+    g.addEventListener('mouseenter', () => {
+      const p = pts[g.dataset.i]; const box = el.getBoundingClientRect(); const rb = g.getBoundingClientRect();
+      tip.innerHTML = `<b>${p.d.slice(8, 10)}/${p.d.slice(5, 7)} · ${p.c} venda(s)</b>Bruto ${brl(p.gross)}<br>Líquido ${brl(p.net)}${p.spend ? `<br>Investido ${brl(p.spend)}` : ''}`;
+      tip.style.left = `${Math.min(box.width - 80, Math.max(80, rb.left - box.left + rb.width / 2))}px`; tip.style.top = `${Math.max(70, (y(Math.max(p.gross, p.spend)) / H) * box.height)}px`; tip.style.opacity = 1;
+    });
+    g.addEventListener('mouseleave', () => (tip.style.opacity = 0));
+  });
 }
 
 // ---------- alunos ----------
@@ -683,6 +840,45 @@ async function pageIntegrations() {
   $('#obretry')?.addEventListener('click', async () => { await api('/api/admin/outbox/retry', { method: 'POST' }); toast('Reenvio iniciado'); pageIntegrations(); });
 }
 
+// ---------- logo da plataforma ----------
+const LOGO_KINDS = [
+  ['icon', 'brand_logo', 'Ícone', 'Quadrado, 512 × 512 px, PNG ou SVG com fundo transparente. Substitui o símbolo ao lado do nome, o ícone da aba do navegador e o do celular.'],
+  ['wide', 'brand_logo_wide', 'Logo horizontal · fundo claro', 'Opcional. 600 × 160 px, PNG ou SVG transparente. Substitui ícone + nome no topo do app.'],
+  ['wide_dark', 'brand_logo_wide_dark', 'Logo horizontal · fundo escuro', 'Opcional. Versão clara da logo, para a tela de login e o painel.'],
+];
+function logoFields(s) {
+  return `<div class="full logo-row">${LOGO_KINDS.map(([t, k, label, hint]) => `<div class="field img-field brand-logo-field" data-logo="${t}"><label>${label}</label>
+    <div class="img-box logo ${t === 'wide_dark' ? 'dark' : ''} ${t === 'icon' ? 'square' : ''}">${s[k] ? `<img src="${esc(s[k])}" alt="">` : '<span>Nenhuma imagem</span>'}</div>
+    <div class="cover-actions"><label class="btn btn-soft btn-sm">${s[k] ? 'Trocar' : 'Enviar'}<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden></label>${s[k] ? '<button type="button" class="btn btn-ghost btn-sm" data-logo-del>Remover</button>' : ''}</div>
+    <span class="hint">${hint}</span></div>`).join('')}</div><div class="full" style="border-top:1px solid var(--line);margin:4px 0 10px"></div>`;
+}
+function bindLogoFields(root, s) {
+  (root.matches?.('[data-logo]') ? [root] : root.querySelectorAll('[data-logo]')).forEach((box) => {
+    const t = box.dataset.logo; const key = LOGO_KINDS.find((x) => x[0] === t)[1];
+    const redraw = () => { const tmp = document.createElement('div'); tmp.innerHTML = logoFields(s); const fresh = tmp.querySelector(`[data-logo="${t}"]`); box.replaceWith(fresh); bindLogoFields(fresh, s); };
+    box.querySelector('input[type=file]')?.addEventListener('change', async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const ib = box.querySelector('.img-box');
+      try {
+        ib.classList.add('is-loading');
+        const { data } = await prepareImage(file, { maxWidth: t === 'icon' ? 512 : 1200, keepRatio: true });
+        const r = await api('/api/admin/settings/logo', { method: 'POST', body: { target: t, data } });
+        s[key] = r.url; refreshBrand(t, r.url); redraw(); toast('Logo atualizada. Os alunos veem a nova logo no próximo acesso.', { ms: 4000 });
+      } catch (er) { ib.classList.remove('is-loading'); toast(er.message, { error: true }); }
+    });
+    box.querySelector('[data-logo-del]')?.addEventListener('click', async () => {
+      await api(`/api/admin/settings/logo?target=${t}`, { method: 'DELETE' });
+      s[key] = ''; refreshBrand(t, ''); redraw(); toast('Logo removida');
+    });
+  });
+}
+/** Atualiza a marca do menu lateral na hora, sem recarregar */
+function refreshBrand(t, url) {
+  if (t === 'icon') ME.brandLogo = url; else if (t === 'wide_dark') ME.brandLogoDark = url; else return;
+  const brand = document.querySelector('.side .brand'); if (!brand) return;
+  brand.innerHTML = ME.brandLogoDark ? `<span class="brand-wide"><img src="${esc(ME.brandLogoDark)}" alt=""></span>` : `${ME.brandLogo ? `<span class="brand-mark brand-icon"><img src="${esc(ME.brandLogo)}" alt=""></span>` : `<span class="brand-mark">${ICONS.mark}</span>`}<span><b>${esc(ME.brand)}</b><small>Painel</small></span>`;
+}
+
 // ---------- configurações ----------
 async function pageSettings() {
   if (!can('admin')) { $('#main').innerHTML = head('Configurações') + '<div class="alert alert-warn">Apenas administradores podem alterar configurações.</div>'; return; }
@@ -690,10 +886,11 @@ async function pageSettings() {
   const f = (k, label, o = {}) => `<div class="field ${o.full ? 'full' : ''}"><label>${label}</label>${o.area ? `<textarea class="input" name="${k}">${esc(s[k])}</textarea>` : o.opts ? `<select class="input" name="${k}">${o.opts.map(([v, l]) => `<option value="${v}" ${String(s[k]) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select>` : `<input class="input" name="${k}" type="${o.type || 'text'}" value="${esc(s[k])}" placeholder="${esc(o.ph || '')}">`}${o.hint ? `<span class="hint">${o.hint}</span>` : ''}</div>`;
   const sw = (k, label) => `<label class="switch full" style="margin:6px 0 14px"><input type="checkbox" data-bool="${k}" ${s[k] === 'true' ? 'checked' : ''}> ${label}</label>`;
   const tabs = {
-    brand: ['Marca e suporte', `${f('brand_name', 'Nome da plataforma (e-mails, login e vitrine de produtos)', { full: true })}${f('brand_short', 'Nome curto (topo do app)')}${f('mentor_name', 'Mentor')}${f('support_email', 'E-mail de suporte', { type: 'email' })}${f('support_whatsapp', 'WhatsApp de suporte', { ph: '+55 11 99999-9999' })}${f('guide_url', 'Link do Guia rápido Casa em Ordem (PDF)', { full: true, hint: 'Aparece no fim da atividade do Dia 6.' })}`],
+    brand: ['Marca e suporte', `${logoFields(s)}${f('brand_name', 'Nome da plataforma (e-mails, login e vitrine de produtos)', { full: true })}${f('brand_tagline', 'Frase abaixo do nome', { ph: 'Área de membros', hint: 'Aparece no topo da vitrine, ao lado do ícone.' })}${f('brand_short', 'Nome curto (topo do app)')}${f('mentor_name', 'Mentor')}${f('support_email', 'E-mail de suporte', { type: 'email' })}${f('support_whatsapp', 'WhatsApp de suporte', { ph: '+55 11 99999-9999' })}${f('guide_url', 'Link do Guia rápido Casa em Ordem (PDF)', { full: true, hint: 'Aparece no fim da atividade do Dia 6.' })}`],
     email: ['E-mail', `${f('email_provider', 'Provedor de envio', { opts: [['log', 'Modo teste (não envia, só registra)'], ['resend', 'Resend (recomendado)'], ['brevo', 'Brevo'], ['smtp', 'SMTP próprio']] })}${f('email_from_address', 'E-mail remetente', { type: 'email', ph: 'contato@seudominio.com.br', hint: 'O domínio precisa estar verificado no provedor (SPF/DKIM).' })}${f('email_from_name', 'Nome do remetente')}${f('resend_api_key', 'Resend · API key')}${f('brevo_api_key', 'Brevo · API key')}${f('smtp_host', 'SMTP · servidor')}${f('smtp_port', 'SMTP · porta', { ph: '465 ou 587' })}${f('smtp_user', 'SMTP · usuário')}${f('smtp_pass', 'SMTP · senha', { type: 'password' })}${f('smtp_secure', 'SMTP · TLS', { opts: [['true', 'TLS direto (porta 465)'], ['false', 'STARTTLS (porta 587)']] })}
       ${sw('release_emails', 'Enviar e-mail automático quando cada dia for liberado')}<div class="full"><button type="button" class="btn btn-soft btn-sm" id="te">Enviar e-mail de teste para mim</button></div>`],
     live: ['Aula ao vivo', `${sw('live_enabled', 'Mostrar o convite da aula ao vivo (Dias 6 e 7 e resultados)')}${f('live_title', 'Título', { full: true })}${f('live_weekday', 'Dia da semana', { opts: [[0, 'Domingo'], [1, 'Segunda'], [2, 'Terça'], [3, 'Quarta'], [4, 'Quinta'], [5, 'Sexta'], [6, 'Sábado']] })}${f('live_time', 'Horário (Brasília)', { type: 'time' })}${f('live_url', 'Link da aula (YouTube, Zoom, StreamYard…)', { full: true })}${f('live_description', 'Descrição', { full: true, area: true })}`],
+    finance: ['Financeiro', `<p class="muted full" style="margin:0 0 6px">Usado para calcular o <b>faturamento líquido</b> quando a Greenn não envia o valor líquido da venda. Quando envia, o valor real é usado automaticamente.</p>${f('fee_percent', 'Taxa da plataforma de pagamento (%)', { type: 'number', ph: '4.99', hint: 'Greenn: confira em Minha conta › Taxas. Ex.: 4,99' })}${f('fee_fixed', 'Taxa fixa por venda (R$)', { type: 'number', ph: '1.00', hint: 'Ex.: 1,00' })}`],
     rules: ['Regras do desafio', `${f('phase_reserve_months', 'Meses de reserva para sair da Fase 1', { type: 'number', hint: 'Padrão do roteiro: 6 (ideal 12).' })}${f('phase3_patrimony', 'Patrimônio para entrar na Fase 3 (R$)', { type: 'number' })}${f('phase3_patrimony_foreign', 'Patrimônio para a Fase 3 · quem recebe em euro/dólar', { type: 'number', hint: 'Na moeda do aluno. Padrão: 20.000.' })}${f('tithe_percent', 'Percentual do dízimo (%)', { type: 'number' })}${f('release_hour', 'Hora de liberação no modo calendário (0–23)', { type: 'number' })}<p class="hint full">Ao alterar as regras, as fases de todos os alunos são recalculadas.</p>`],
   };
   tabs.backup = ['Backup', ''];
@@ -708,7 +905,7 @@ async function pageSettings() {
   const show = (k) => {
     $('#sp').style.display = k === 'backup' ? 'none' : ''; $('#bk').style.display = k === 'backup' ? '' : 'none';
     if (k === 'backup') return showBackup();
-    $('#sf').innerHTML = tabs[k][1]; $('#te')?.addEventListener('click', async (e) => { await withLoading(e.currentTarget, async () => { const r = await api('/api/admin/settings/test-email', { method: 'POST', body: {} }); toast(r.status === 'sent' ? 'E-mail enviado. Confira a sua caixa.' : r.status === 'logged' ? 'Modo teste ativo: escolha um provedor para enviar de verdade.' : `Falhou: ${r.error}`, { error: r.status === 'failed', ms: 6000 }); }); }); };
+    $('#sf').innerHTML = tabs[k][1]; bindLogoFields($('#sf'), s); $$('#sf input[type=number]').forEach((i) => (i.step = 'any')); $('#te')?.addEventListener('click', async (e) => { await withLoading(e.currentTarget, async () => { const r = await api('/api/admin/settings/test-email', { method: 'POST', body: {} }); toast(r.status === 'sent' ? 'E-mail enviado. Confira a sua caixa.' : r.status === 'logged' ? 'Modo teste ativo: escolha um provedor para enviar de verdade.' : `Falhou: ${r.error}`, { error: r.status === 'failed', ms: 6000 }); }); }); };
   $$('#st [data-k]').forEach((b) => (b.onclick = () => { $$('#st button').forEach((x) => x.classList.toggle('on', x === b)); show(b.dataset.k); }));
   show('brand');
   $('#ss').onclick = async (e) => {

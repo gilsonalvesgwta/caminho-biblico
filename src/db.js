@@ -294,6 +294,30 @@ const migrations = [
   UPDATE products SET show_live = 1, short_name = 'Caminho Bíblico', mentor = 'Rhus Moreira' WHERE slug = 'desafio-7-dias';
   UPDATE products SET unit_label = 'Material', short_name = 'Casa em Ordem' WHERE slug = 'guia-casa-em-ordem';
   `,
+  // 5: financeiro (líquido real, taxa, data do reembolso) e gastos de marketing
+  `
+  ALTER TABLE sales ADD COLUMN net_amount REAL;
+  ALTER TABLE sales ADD COLUMN fee_amount REAL;
+  ALTER TABLE sales ADD COLUMN refunded_at TEXT;
+  UPDATE sales SET refunded_at = updated_at WHERE status IN ('refunded','chargedback');
+  CREATE INDEX IF NOT EXISTS sales_status_paid ON sales(status, paid_at);
+  CREATE TABLE ad_spend (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL DEFAULT 'manual',
+    date TEXT NOT NULL,
+    campaign_id TEXT NOT NULL DEFAULT '',
+    campaign_name TEXT,
+    product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+    spend REAL NOT NULL DEFAULT 0,
+    impressions INTEGER, clicks INTEGER, purchases INTEGER,
+    note TEXT,
+    batch TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX ad_spend_date ON ad_spend(date);
+  CREATE UNIQUE INDEX ad_spend_uniq ON ad_spend(source, date, campaign_id) WHERE source <> 'manual';
+  `,
 ];
 
 export function migrate() {
@@ -337,6 +361,12 @@ export const SETTING_DEFAULTS = {
   guide_url: '',
   release_hour: '6',
   release_emails: 'true',
+  brand_tagline: 'Área de membros',
+  brand_logo: '', // ícone quadrado (substitui o símbolo)
+  brand_logo_wide: '', // logo horizontal para fundo claro (topo do app)
+  brand_logo_wide_dark: '', // logo horizontal para fundo escuro (login e painel)
+  fee_percent: '4.99', // taxa da plataforma de pagamento (%), usada quando a Greenn não envia o líquido
+  fee_fixed: '1.00', // taxa fixa por venda (R$)
 };
 const SECRET_KEYS = new Set(['greenn_webhook_token', 'resend_api_key', 'brevo_api_key', 'smtp_pass', 'outbound_webhook_secret']);
 

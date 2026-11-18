@@ -156,6 +156,71 @@ try {
   assert.equal((await call('x', 'GET', '/api/admin/backups/' + bk.name)).status, 401);
   step('backup: criar, listar e baixar (só administrador)');
 
+  // financeiro: bruto, líquido (real da Greenn e estimado), reembolsos, marketing
+  const today = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  const daysAgo = (n) => new Date(Date.now() - 3 * 3600e3 - n * 86400e3).toISOString().slice(0, 10);
+  const fin = async (q = `from=${today}&to=${today}`) => (await call('admin', 'GET', `/api/admin/finance?${q}`)).json;
+  const f0 = await fin();
+  const base = { type: 'sale', event: 'saleUpdated', product: { id: 12345, name: 'Desafio' }, client: { name: 'Fin Teste', email: 'fin@teste.com' } };
+  await call('x', 'POST', hook, { ...base, currentStatus: 'paid', sale: { id: 9500, amount: 100, seller_balance: 90, method: 'CREDIT_CARD' }, saleMetas: [{ meta_key: 'utm_source', meta_value: 'facebook' }, { meta_key: 'utm_campaign', meta_value: 'desafio-frio' }] });
+  await call('x', 'POST', hook, { ...base, currentStatus: 'paid', sale: { id: 9501, amount: 200, method: 'PIX' } });
+  await call('x', 'POST', hook, { ...base, currentStatus: 'paid', sale: { id: 9502, amount: 50, method: 'PIX' } });
+  await call('x', 'POST', hook, { ...base, currentStatus: 'refunded', sale: { id: 9502, amount: 50, method: 'PIX' } });
+  const f1 = await fin();
+  const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 0.011, `${msg}: ${a} ≠ ${b}`);
+  near(f1.cur.gross - f0.cur.gross, 350, 'bruto');
+  assert.equal(f1.cur.approved - f0.cur.approved, 3);
+  assert.equal(f1.cur.refunds.c - f0.cur.refunds.c, 1); near(f1.cur.refunds.v - f0.cur.refunds.v, 50, 'reembolsos');
+  near(f1.cur.net - f0.cur.net, 90 + (200 - 200 * 0.0499 - 1), 'líquido (real 90 + estimado 189,02)');
+  assert.ok(f1.byMethod.some((m) => m.method === 'CREDIT_CARD') && f1.bySource.some((s) => s.source === 'facebook' && s.campaign === 'desafio-frio'));
+  assert.ok(f1.byProduct.length && f1.series.length === 1 && f1.refundsList.some((r) => r.amount === 50));
+  step('financeiro: bruto, líquido real e estimado, reembolsos, formas de pagamento e UTM');
+
+  assert.equal((await call('admin', 'POST', '/api/admin/marketing/spend', { date: daysAgo(2), date_to: today, spend: '300,00', campaign_name: 'Teste', product_id: 1 })).json.days, 3);
+  assert.equal((await call('admin', 'POST', '/api/admin/marketing/spend', { date: today, spend: '0' })).status, 400);
+  const csv = 'Início dos relatórios;Término dos relatórios;Nome da campanha;Valor usado (BRL);Impressões;Cliques no link\n' + `${today};${today};"Campanha; Frio";"1.234,56";10.000;250\n`;
+  const imp1 = (await call('admin', 'POST', '/api/admin/marketing/import', { csv })).json;
+  assert.equal(imp1.imported, 1); near(imp1.total, 1234.56, 'csv');
+  await call('admin', 'POST', '/api/admin/marketing/import', { csv }); // reimportar não duplica
+  assert.equal((await call('admin', 'POST', '/api/admin/marketing/import', { csv: 'a,b\n1,2' })).status, 400);
+  const f2 = await fin();
+  near(f2.cur.spend, 100 + 1234.56, 'investimento do dia'); assert.equal(f2.cur.clicks, 250);
+  near(f2.cur.roas, f2.cur.gross / f2.cur.spend, 'ROAS'); near(f2.cur.profit, f2.cur.net - f2.cur.spend, 'lucro');
+  near((await fin(`from=${daysAgo(2)}&to=${today}`)).cur.spend, 300 + 1234.56, 'investimento de 3 dias');
+  const rows = (await call('admin', 'GET', `/api/admin/marketing/spend?from=${daysAgo(2)}&to=${today}`)).json.rows;
+  assert.equal(rows.length, 2); const man = rows.find((r) => r.source === 'manual');
+  assert.equal(man.days, 3); near(man.spend, 300, 'lançamento agrupado');
+  assert.equal((await call('admin', 'DELETE', `/api/admin/marketing/spend?source=manual&grp=${man.grp}&from=${today}&to=${today}`)).json.rows, 3);
+  near((await fin(`from=${daysAgo(2)}&to=${today}`)).cur.spend, 1234.56, 'após excluir o lançamento inteiro');
+  assert.equal((await call('admin', 'PUT', '/api/admin/settings', { fee_percent: 'abc' })).status, 400);
+  const fA = await fin();
+  await call('admin', 'PUT', '/api/admin/settings', { fee_percent: '10', fee_fixed: '0' });
+  const fB = await fin();
+  assert.ok(fB.cur.net < fA.cur.net); near(fB.cur.fees, fB.cur.kept.v - fB.cur.net, 'taxas = mantido − líquido');
+  await call('admin', 'PUT', '/api/admin/settings', { fee_percent: '4.99', fee_fixed: '1' });
+  const dash = (await call('admin', 'GET', '/api/admin/dashboard?days=30')).json;
+  assert.ok(dash.fin && dash.fin.gross >= 350 && dash.fin.net > 0);
+  step('marketing: lançamento por período, CSV da Meta sem duplicar, ROAS, lucro e taxa configurável');
+
+  // logo da plataforma
+  const logoPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  assert.equal((await call('x', 'GET', '/api/app/brand')).json.brand_logo, '');
+  const up = (await call('admin', 'POST', '/api/admin/settings/logo', { target: 'icon', data: logoPng })).json;
+  assert.match(up.url, /^\/media\/brand\/marca-icon-[a-f0-9]{12}\.png$/);
+  assert.equal((await fetch(BASE + up.url)).status, 200);
+  assert.equal((await call('x', 'GET', '/api/app/brand')).json.brand_logo, up.url);
+  assert.equal((await call('admin', 'GET', '/api/admin/me')).json.brandLogo, up.url);
+  await call('admin', 'PUT', '/api/admin/settings', { brand_logo: 'https://malicioso.example/x.png', brand_tagline: 'Escola Online' });
+  const br = (await call('x', 'GET', '/api/app/brand')).json;
+  assert.equal(br.brand_logo, up.url); assert.equal(br.brand_tagline, 'Escola Online');
+  const bad = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>').toString('base64');
+  assert.equal((await call('admin', 'POST', '/api/admin/settings/logo', { target: 'wide', data: bad })).status, 400);
+  assert.equal((await call('admin', 'POST', '/api/admin/settings/logo', { target: 'outro', data: logoPng })).status, 400);
+  assert.equal((await call('x', 'POST', '/api/admin/settings/logo', { target: 'icon', data: logoPng })).status, 401);
+  assert.equal((await call('admin', 'DELETE', '/api/admin/settings/logo?target=icon')).status, 200);
+  assert.equal((await call('x', 'GET', '/api/app/brand')).json.brand_logo, '');
+  step('logo da plataforma: enviar, aplicar, bloquear SVG perigoso e remover');
+
   for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/shared/player.js', '/shared/player.css', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
   step('arquivos do app e do painel');
   console.log('\nTodos os testes passaram.');

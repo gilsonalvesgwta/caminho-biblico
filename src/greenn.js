@@ -34,14 +34,19 @@ export async function processGreennEvent(p) {
   const metas = Object.fromEntries((p.saleMetas || []).map((m) => [m.meta_key, m.meta_value]));
   if (saleId) {
     const t = now();
-    db.run(`INSERT INTO sales (provider, sale_id, provider_product_id, product_name, email, client_name, client_phone, status, amount, method, installments, coupon, kind, utm_source, utm_medium, utm_campaign, utm_content, paid_at, created_at, updated_at)
-      VALUES ('greenn',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    const amount = Number(p.sale?.amount ?? p.contract?.amount ?? p.product?.amount ?? 0) || 0;
+    const { net, fee } = extractNet(p, amount);
+    const refundedAt = ['refunded', 'chargedback'].includes(status) ? t : null;
+    db.run(`INSERT INTO sales (provider, sale_id, provider_product_id, product_name, email, client_name, client_phone, status, amount, net_amount, fee_amount, method, installments, coupon, kind, utm_source, utm_medium, utm_campaign, utm_content, paid_at, refunded_at, created_at, updated_at)
+      VALUES ('greenn',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(provider, sale_id, provider_product_id) DO UPDATE SET status = excluded.status, amount = CASE WHEN excluded.amount > 0 THEN excluded.amount ELSE sales.amount END,
-        method = COALESCE(excluded.method, sales.method), client_name = COALESCE(excluded.client_name, sales.client_name), client_phone = COALESCE(excluded.client_phone, sales.client_phone), paid_at = COALESCE(sales.paid_at, excluded.paid_at), updated_at = excluded.updated_at`,
-      saleId, gpid, p.product?.name || null, email, client.name || null, client.cellphone || null, status, Number(p.sale?.amount ?? p.contract?.amount ?? p.product?.amount ?? 0) || 0,
+        net_amount = COALESCE(excluded.net_amount, sales.net_amount), fee_amount = COALESCE(excluded.fee_amount, sales.fee_amount),
+        method = COALESCE(excluded.method, sales.method), client_name = COALESCE(excluded.client_name, sales.client_name), client_phone = COALESCE(excluded.client_phone, sales.client_phone), paid_at = COALESCE(sales.paid_at, excluded.paid_at),
+        refunded_at = CASE WHEN excluded.status IN ('refunded','chargedback') THEN COALESCE(sales.refunded_at, excluded.refunded_at) ELSE NULL END, updated_at = excluded.updated_at`,
+      saleId, gpid, p.product?.name || null, email, client.name || null, client.cellphone || null, status, amount, net, fee,
       p.sale?.method || null, p.sale?.installments || null, p.sale?.coupon?.name || null, type,
       metas.utm_source || null, metas.utm_medium || null, metas.utm_campaign || null, metas.utm_content || null,
-      status === 'paid' ? t : null, p.sale?.created_at ? toIso(p.sale.created_at) : t, t);
+      status === 'paid' ? t : null, refundedAt, p.sale?.created_at ? toIso(p.sale.created_at) : t, t);
   }
 
   if (!products.length) {
@@ -113,3 +118,22 @@ export async function reprocessWebhook(id) {
   db.run('UPDATE webhook_events SET outcome = ?, message = ?, attempts = attempts + 1, processed_at = ? WHERE id = ?', result.outcome, result.message, now(), id);
   return { id, ...result };
 }
+
+/**
+ * Valor líquido real, quando a Greenn envia (o nome do campo varia entre versões do webhook).
+ * Sem esse dado, o financeiro estima pela taxa configurada em Configurações › Financeiro.
+ */
+const NET_KEYS = ['seller_balance', 'producer_balance', 'balance', 'net_amount', 'amount_net', 'liquid_amount', 'amount_liquid', 'producer_amount', 'seller_amount', 'net'];
+const FEE_KEYS = ['fee', 'fees', 'tax', 'taxes', 'platform_fee', 'amount_fee', 'fee_amount'];
+export function extractNet(p, amount) {
+  const num = (v) => (v === null || v === undefined || v === '' || typeof v === 'object' ? NaN : Number(String(v).replace(',', '.')));
+  const pick = (obj, keys) => { for (const k of keys) { const v = num(obj?.[k]); if (Number.isFinite(v) && v >= 0) return v; } return null; };
+  for (const src of [p.sale, p.contract, p]) {
+    const net = pick(src, NET_KEYS);
+    if (net !== null && net > 0 && (!amount || net <= amount)) return { net, fee: amount ? Math.max(0, +(amount - net).toFixed(2)) : null };
+    const fee = pick(src, FEE_KEYS);
+    if (fee !== null && amount && fee < amount) return { net: +(amount - fee).toFixed(2), fee };
+  }
+  return { net: null, fee: null };
+}
+

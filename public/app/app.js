@@ -6,6 +6,7 @@ import { applyTheme, resetTheme, themeVars, varsToStyle, loadFont, normalizeThem
 
 const app = document.getElementById('app');
 let ME = null;
+let BRAND = null; // logo e nome da plataforma (Configurações › Marca)
 let timers = [];
 let cleanups = [];
 const clearTimers = () => { timers.forEach(clearInterval); timers = []; cleanups.forEach((f) => { try { f(); } catch { /* */ } }); cleanups = []; };
@@ -36,8 +37,32 @@ document.addEventListener('click', (e) => {
 });
 window.addEventListener('popstate', route);
 
+async function loadBrand() {
+  if (!BRAND) BRAND = await api('/api/app/brand').catch(() => ({}));
+  applyFavicon();
+  return BRAND;
+}
+/** Favicon e ícone do celular seguem o ícone da plataforma, quando enviado */
+function applyFavicon() {
+  const src = BRAND?.brand_logo;
+  if (!src) return;
+  for (const rel of ['icon', 'apple-touch-icon']) {
+    const l = document.querySelector(`link[rel="${rel}"]`);
+    if (l && l.getAttribute('href') !== src) { l.setAttribute('href', src); l.removeAttribute('type'); }
+  }
+}
+/** Bloco da marca da plataforma. Sem logo enviada, devolve null e a marca original continua igual. */
+function brandHtml({ dark = false, name, sub } = {}) {
+  const b = BRAND || {};
+  const wide = dark ? b.brand_logo_wide_dark : b.brand_logo_wide;
+  if (wide) return `<span class="brand-wide"><img src="${esc(wide)}" alt="${esc(b.brand_name || '')}"></span>`;
+  if (b.brand_logo) return `<span class="brand-logo brand-icon"><img src="${esc(b.brand_logo)}" alt=""></span><span class="brand-name">${esc(name ?? b.brand_name ?? '')}<small>${esc(sub ?? b.brand_tagline ?? 'Área de membros')}</small></span>`;
+  return null;
+}
+const markHtml = () => (BRAND?.brand_logo ? `<span class="brand-logo brand-icon"><img src="${esc(BRAND.brand_logo)}" alt=""></span>` : `<span class="brand-mark">${ICON.mark}</span>`);
+
 async function loadMe() {
-  try { ME = await api('/api/app/me'); return ME; } catch (e) { if (e.status === 401) { ME = null; return null; } throw e; }
+  try { ME = await api('/api/app/me'); BRAND = { ...(BRAND || {}), ...ME.settings }; applyFavicon(); return ME; } catch (e) { if (e.status === 401) { ME = null; return null; } throw e; }
 }
 const mainProduct = () => ME?.products.find((p) => p.kind === 'challenge') || ME?.products.find((p) => p.kind !== 'bonus') || ME?.products[0];
 const mains = () => (ME?.products || []).filter((p) => p.kind !== 'bonus');
@@ -60,7 +85,7 @@ async function route() {
   clearTimers();
   const path = location.pathname.replace(/\/+$/, '') || '/';
   const pub = { '/login': pageLogin, '/acesso': pageAccess, '/esqueci': pageForgot };
-  if (pub[path]) return pub[path]();
+  if (pub[path]) { await loadBrand(); return pub[path](); }
   if (!ME) await loadMe().catch(() => null);
   if (!ME) return go('/login', true);
   window.scrollTo(0, 0);
@@ -94,11 +119,12 @@ function shell(content, active, { wide } = {}) {
   if (p?.hasActivities) nav.push([resultsHref(p), 'Resultados', ICON.chart, 'results']);
   nav.push(['/perfil', 'Perfil', ICON.user, 'profile']);
   const brandName = p ? p.shortName || p.name : s.brand_name || 'Área de membros';
-  const brandSub = p ? p.mentor || (isMulti() ? KIND_LABEL[p.kind] : s.mentor_name) || '' : 'Área de membros';
-  const mark = p?.logo ? `<span class="brand-logo"><img src="${esc(p.logo)}" alt=""></span>` : `<span class="brand-mark">${ICON.mark}</span>`;
+  const brandSub = p ? p.mentor || (isMulti() ? KIND_LABEL[p.kind] : s.mentor_name) || '' : s.brand_tagline || 'Área de membros';
+  const mark = p?.logo ? `<span class="brand-logo"><img src="${esc(p.logo)}" alt=""></span>` : markHtml();
+  const platform = !p ? brandHtml({ name: brandName, sub: brandSub }) : null;
   app.innerHTML = `
     <header class="topbar"><div class="topbar-in">
-      <a class="brand" href="${p ? productHref(p) : '/'}" data-link>${mark}<span class="brand-name">${esc(brandName)}<small>${esc(brandSub)}</small></span></a>
+      <a class="brand" href="${p ? productHref(p) : '/'}" data-link>${platform || `${mark}<span class="brand-name">${esc(brandName)}<small>${esc(brandSub)}</small></span>`}</a>
       <nav class="topnav">${nav.map(([h, l, , k]) => `<a href="${h}" data-link class="${active === k ? 'active' : ''}">${l}</a>`).join('')}</nav>
       <a class="avatar" href="/perfil" data-link title="Meu perfil">${esc((firstName(ME.user.name) || ME.user.email)[0].toUpperCase())}</a>
     </div></header>
@@ -110,7 +136,7 @@ function authShell(card) {
   const s = ME?.settings || {};
   app.innerHTML = `<div class="auth">
     <div class="auth-art">
-      <span class="brand"><span class="brand-mark">${ICON.mark}</span><span class="brand-name">O Caminho Bíblico<small>do Dinheiro</small></span></span>
+      <span class="brand">${brandHtml({ dark: true }) || `<span class="brand-mark">${ICON.mark}</span><span class="brand-name">O Caminho Bíblico<small>do Dinheiro</small></span>`}</span>
       <div class="auth-quote"><h1>Não é sobre quanto você ganha. É sobre <em>quem governa</em> o que você ganha.</h1><p>7 dias para colocar o coração no lugar, a casa financeira em ordem e sair com um plano claro de patrimônio.</p></div>
       <div class="auth-verse">“Sobre tudo o que se deve guardar, guarda o teu coração, porque dele procedem as fontes da vida.”<span>Provérbios 4:23</span></div>
     </div>
@@ -559,7 +585,7 @@ const standalone = () => matchMedia('(display-mode: standalone)').matches || nav
 function installTip() {
   if (standalone()) return '';
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  return `<div class="install-tip no-print"><span class="brand-mark" style="flex:none">${ICON.mark}</span><div style="flex:1;font-size:14px"><b>Use como aplicativo</b><br><span class="muted">${ios ? 'No Safari, toque em Compartilhar e depois em “Adicionar à Tela de Início”.' : 'Instale na tela inicial para abrir com um toque.'}</span></div>${ios ? '' : `<button class="btn btn-primary btn-sm ${deferredPrompt ? '' : 'hidden'}" data-install>Instalar</button>`}</div>`;
+  return `<div class="install-tip no-print">${BRAND?.brand_logo ? `<span class="brand-logo brand-icon" style="flex:none"><img src="${esc(BRAND.brand_logo)}" alt=""></span>` : `<span class="brand-mark" style="flex:none">${ICON.mark}</span>`}<div style="flex:1;font-size:14px"><b>Use como aplicativo</b><br><span class="muted">${ios ? 'No Safari, toque em Compartilhar e depois em “Adicionar à Tela de Início”.' : 'Instale na tela inicial para abrir com um toque.'}</span></div>${ios ? '' : `<button class="btn btn-primary btn-sm ${deferredPrompt ? '' : 'hidden'}" data-install>Instalar</button>`}</div>`;
 }
 function bindInstall() {
   document.querySelectorAll('[data-install]').forEach((b) => b.addEventListener('click', async () => { if (!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt = null; b.closest('.install-tip')?.remove(); }));

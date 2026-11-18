@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { makeBackup, listBackups, backupDir } from './backup.js';
+import { financeReport, addSpend, importMetaCsv, listSpend, deleteSpend } from './finance.js';
 
 const page = (q) => { const p = Math.max(1, Number(q.page || 1)); const size = Math.min(200, Math.max(10, Number(q.size || 25))); return { limit: size, offset: (p - 1) * size, page: p, size }; };
 const sinceDays = (d) => new Date(Date.now() - d * 86400e3).toISOString();
@@ -31,7 +32,7 @@ export function registerAdminRoutes(r) {
   r.get('/api/admin/me', (req) => {
     const a = requireAdmin(req);
     const s = getSettings();
-    return { admin: a, brand: s.brand_name, webhookConfigured: !!s.greenn_webhook_token, appUrl: config.appUrl };
+    return { admin: a, brand: s.brand_name, brandLogo: s.brand_logo || '', brandLogoDark: s.brand_logo_wide_dark || '', webhookConfigured: !!s.greenn_webhook_token, appUrl: config.appUrl };
   });
   r.post('/api/admin/me/password', (req) => {
     const a = requireAdmin(req);
@@ -72,11 +73,36 @@ export function registerAdminRoutes(r) {
     const whIssues = db.get("SELECT COUNT(*) c FROM webhook_events WHERE outcome IN ('error','unmapped') AND received_at >= ?", sinceDays(7)).c;
     const lastWebhook = db.get('SELECT received_at, outcome FROM webhook_events ORDER BY id DESC LIMIT 1');
     const recentSales = db.all(`SELECT s.*, COALESCE(u.name, s.client_name) name FROM sales s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.updated_at DESC LIMIT 8`);
+    const fin = financeReport({ days }).cur;
     return {
+      fin: { gross: fin.gross, net: fin.net, approved: fin.approved, ticket: fin.ticket, refundValue: fin.refunds.v + fin.chargebacks.v, refundCount: fin.refunds.c + fin.chargebacks.c, refundRate: fin.refundRate, spend: fin.spend, roas: fin.roas },
       days, revenue: paid.v, sales: paid.c, ticket: paid.c ? paid.v / paid.c : 0, refunds: refunds.c, refundValue: refunds.v,
       refundRate: paid.c ? refunds.c / paid.c : 0, pending, series, byProduct, students, newStudents, active7, funnel, paz, live, hot, phases,
       abandoned, whIssues, lastWebhook, recentSales, nextLive: nextLive(),
     };
+  });
+
+  // ---------- financeiro e marketing ----------
+  r.get('/api/admin/finance', (req) => { requireAdmin(req, 'admin'); return financeReport(req.query); });
+  r.get('/api/admin/marketing/spend', (req) => { requireAdmin(req, 'admin'); return { rows: listSpend(req.query) }; });
+  r.post('/api/admin/marketing/spend', (req) => {
+    requireAdmin(req, 'admin');
+    const out = addSpend(req.body || {});
+    audit(req, 'marketing.spend.add', null, out);
+    return { ok: true, ...out };
+  });
+  r.delete('/api/admin/marketing/spend', (req) => {
+    requireAdmin(req, 'admin');
+    const n = deleteSpend(req.query);
+    if (!n) fail(404, 'Lançamento não encontrado.');
+    audit(req, 'marketing.spend.remove', null, { source: req.query.source, grp: req.query.grp, rows: n });
+    return { ok: true, rows: n };
+  });
+  r.post('/api/admin/marketing/import', (req) => {
+    requireAdmin(req, 'admin');
+    const out = importMetaCsv(req.body?.csv, req.body?.product_id || null);
+    audit(req, 'marketing.import', null, out);
+    return { ok: true, ...out };
   });
 
   // ---------- alunos ----------
@@ -407,6 +433,31 @@ export function registerAdminRoutes(r) {
     audit(req, 'product.image.remove', p.id, { target: col });
     return { ok: true };
   });
+  // Logo da plataforma: ícone quadrado e versões horizontais (fundo claro e fundo escuro)
+  const BRAND_TARGETS = { icon: 'brand_logo', wide: 'brand_logo_wide', wide_dark: 'brand_logo_wide_dark' };
+  r.post('/api/admin/settings/logo', (req) => {
+    requireAdmin(req, 'admin');
+    const key = BRAND_TARGETS[req.body.target]; if (!key) fail(400, 'Tipo de logo inválido.');
+    const { buf, kind } = decodeImage(req.body.data);
+    const dir = path.join(config.dataDir, 'uploads', 'brand');
+    fs.mkdirSync(dir, { recursive: true });
+    const name = `marca-${req.body.target.replace('_', '-')}-${crypto.createHash('sha256').update(buf).digest('hex').slice(0, 12)}.${kind}`;
+    fs.writeFileSync(path.join(dir, name), buf);
+    const old = getSettings()[key];
+    setSettings({ [key]: `/media/brand/${name}` });
+    if (old && old.startsWith('/media/brand/') && old !== `/media/brand/${name}`) fs.rm(path.join(dir, path.basename(old)), { force: true }, () => {});
+    audit(req, 'settings.logo', null, { target: req.body.target });
+    return { ok: true, url: `/media/brand/${name}` };
+  });
+  r.delete('/api/admin/settings/logo', (req) => {
+    requireAdmin(req, 'admin');
+    const key = BRAND_TARGETS[req.query.target]; if (!key) fail(400, 'Tipo de logo inválido.');
+    const old = getSettings()[key];
+    if (old?.startsWith('/media/brand/')) fs.rm(path.join(config.dataDir, 'uploads', 'brand', path.basename(old)), { force: true }, () => {});
+    setSettings({ [key]: '' });
+    audit(req, 'settings.logo.remove', null, { target: req.query.target });
+    return { ok: true };
+  });
   r.get('/api/admin/products/:id/lessons', (req) => {
     requireAdmin(req);
     return { rows: db.all('SELECT * FROM lessons WHERE product_id = ? ORDER BY number', Number(req.params.id)).map((l) => ({ ...l, key_phrases: jparse(l.key_phrases, []), verses: jparse(l.verses, []) })) };
@@ -484,8 +535,13 @@ export function registerAdminRoutes(r) {
   });
   r.put('/api/admin/settings', (req) => {
     requireAdmin(req, 'admin');
-    setSettings(req.body || {});
-    audit(req, 'settings.update', null, { keys: Object.keys(req.body || {}) });
+    const body = { ...(req.body || {}) };
+    for (const k of ['brand_logo', 'brand_logo_wide', 'brand_logo_wide_dark']) delete body[k]; // só por upload
+    for (const k of ['fee_percent', 'fee_fixed']) {
+      if (k in body) { const v = Number(String(body[k]).replace(',', '.')); if (!Number.isFinite(v) || v < 0 || v > (k === 'fee_percent' ? 50 : 1000)) fail(400, 'Taxa inválida.'); body[k] = String(v); }
+    }
+    setSettings(body);
+    audit(req, 'settings.update', null, { keys: Object.keys(body) });
     // recalcula resumos se regras de fase mudaram
     if (['phase_reserve_months', 'phase3_patrimony', 'phase3_patrimony_foreign', 'tithe_percent'].some((k) => k in (req.body || {}))) {
       for (const s of db.all('SELECT user_id, product_id FROM summaries')) refreshSummary(s.user_id, s.product_id);

@@ -91,6 +91,13 @@ Copie `data/backups` para fora da VPS (S3, Backblaze, Google Drive via rclone). 
 - **Liberação manual:** na ficha do aluno, **+ Liberar produto** permite escolher a validade (padrão do produto, vitalício ou até uma data) e avisar o aluno por e-mail. Também dá para reativar, alterar a validade ou remover.
 - Quem já é aluno e compra outro produto pela Greenn recebe o aviso "Novo acesso liberado" com o link direto do produto, sem precisar criar senha de novo.
 
+## 2c. Logo da plataforma e financeiro
+
+- **Logo:** Configurações › Marca e suporte. Ícone (512×512), logo horizontal para fundo claro (topo do app) e para fundo escuro (login e painel). Sem logo enviada, tudo continua como antes.
+- **Financeiro** (menu Operação): faturamento bruto e líquido, taxas, reembolsos, chargebacks, vendas por produto, forma de pagamento e UTM, comparação com o período anterior.
+- **Líquido:** usa o valor líquido real quando a Greenn envia no webhook; senão estima pela taxa de Configurações › Financeiro (padrão 4,99% + R$ 1,00).
+- **Marketing:** gastos lançados à mão (dia ou período) ou importados do CSV do Gerenciador de Anúncios (Detalhamento › Por tempo › Dia). Reimportar o mesmo período atualiza, sem duplicar. Calcula ROAS, ROI, CAC, lucro e margem. A tabela `ad_spend` já tem a origem `meta`, pronta para a integração direta com a API da Meta.
+
 ## 3. Como a liberação funciona
 
 - Pagamento aprovado na Greenn → webhook → cadastro do aluno + inscrição → e-mail com link para criar a senha (vale 72h; depois o aluno usa "Primeiro acesso / esqueci a senha").

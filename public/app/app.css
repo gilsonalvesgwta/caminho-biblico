@@ -321,3 +321,11 @@ main.page.wide { max-width: 980px; }
 .material small { color: var(--text-3); font-size: 12.5px; }
 .material > svg { color: var(--text-3); }
 .btn svg { flex: none; }
+
+/* Logo da plataforma (Configurações › Marca) */
+.brand-logo.brand-icon { background: transparent; box-shadow: none; border-radius: 10px; }
+.brand-wide { display: flex; align-items: center; height: 46px; }
+.brand-wide img { height: 100%; width: auto; max-width: 260px; object-fit: contain; object-position: left center; }
+.auth-art .brand-wide { height: 56px; }
+.auth-art .brand-wide img { max-width: 280px; }
+@media (max-width: 640px) { .brand-wide { height: 34px; } .brand-wide img { max-width: 170px; } }
