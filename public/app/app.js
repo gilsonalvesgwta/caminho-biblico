@@ -52,12 +52,15 @@ function applyFavicon() {
     if (l && l.getAttribute('href') !== src) { l.setAttribute('href', src); l.removeAttribute('type'); }
   }
 }
+/** Compara textos ignorando maiúsculas e acentos (evita "Área de membros · Área de membros") */
+const same = (a, b) => { const f = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase(); return f(a) === f(b); };
+const subOf = (name, sub) => (same(name, sub) ? '' : sub);
 /** Bloco da marca da plataforma. Sem logo enviada, devolve null e a marca original continua igual. */
 function brandHtml({ dark = false, name, sub } = {}) {
   const b = BRAND || {};
   const wide = dark ? b.brand_logo_wide_dark : b.brand_logo_wide;
   if (wide) return `<span class="brand-wide"><img src="${esc(wide)}" alt="${esc(b.brand_name || '')}"></span>`;
-  if (b.brand_logo) return `<span class="brand-logo brand-icon"><img src="${esc(b.brand_logo)}" alt=""></span><span class="brand-name">${esc(name ?? b.brand_name ?? '')}<small>${esc(sub ?? b.brand_tagline ?? 'Área de membros')}</small></span>`;
+  if (b.brand_logo) return `<span class="brand-logo brand-icon"><img src="${esc(b.brand_logo)}" alt=""></span><span class="brand-name">${esc(name ?? b.brand_name ?? '')}${(() => { const sb = subOf(name ?? b.brand_name, sub ?? b.brand_tagline ?? 'Área de membros'); return sb ? `<small>${esc(sb)}</small>` : ''; })()}</span>`;
   return null;
 }
 const markHtml = () => (BRAND?.brand_logo ? `<span class="brand-logo brand-icon"><img src="${esc(BRAND.brand_logo)}" alt=""></span>` : `<span class="brand-mark">${ICON.mark}</span>`);
@@ -125,7 +128,7 @@ function shell(content, active, { wide } = {}) {
   const platform = !p ? brandHtml({ name: brandName, sub: brandSub }) : null;
   app.innerHTML = `
     <header class="topbar"><div class="topbar-in">
-      <a class="brand" href="${p ? productHref(p) : '/'}" data-link>${platform || `${mark}<span class="brand-name">${esc(brandName)}<small>${esc(brandSub)}</small></span>`}</a>
+      <a class="brand" href="${p ? productHref(p) : '/'}" data-link>${platform || `${mark}<span class="brand-name">${esc(brandName)}${subOf(brandName, brandSub) ? `<small>${esc(brandSub)}</small>` : ''}</span>`}</a>
       <nav class="topnav">${nav.map(([h, l, , k]) => `<a href="${h}" data-link class="${active === k ? 'active' : ''}">${l}</a>`).join('')}</nav>
       <a class="avatar" href="/perfil" data-link title="Meu perfil">${esc((firstName(ME.user.name) || ME.user.email)[0].toUpperCase())}</a>
     </div></header>
@@ -283,7 +286,7 @@ function productCard(p) {
   else { cta = 'Acessar'; status = pr.total ? `${pr.done} de ${pr.total}` : 'Em breve'; }
   const pct = p.kind === 'bonus' || !pr.total ? null : Math.round((pr.done / pr.total) * 100);
   return productCardHtml({ href: `/p/${p.slug}`, theme: p.theme, cover: p.cover, logo: p.logo, name: p.name, shortName: p.shortName, mentor: p.mentor, kindLabel: p.badge || KIND_LABEL[p.kind],
-    tagline: p.tagline, progress: { label: status, pct }, done: pr.finished && p.kind !== 'bonus', footNote: p.expiresAt ? `Acesso até ${fmtDate(p.expiresAt)}` : 'Acesso vitalício', cta });
+    tagline: p.tagline, progress: { label: status, pct }, done: pr.finished && p.kind !== 'bonus', footNote: p.expiresAt ? `Até ${fmtDate(p.expiresAt, { day: '2-digit', month: '2-digit', year: 'numeric' })}` : 'Acesso vitalício', cta });
 }
 function storeCard(p) {
   const n = p.lessonsCount || 0;
@@ -304,11 +307,11 @@ function pageStore() {
   const resume = own.find((p) => p.kind !== 'bonus' && progressOf(p).started && !progressOf(p).finished && progressOf(p).current);
   shell(`
     <section class="store-hero">
-      <div class="eyebrow">Área de membros</div>
+      <div class="eyebrow">${esc(ME.settings?.brand_tagline || 'Área de membros')}</div>
       <h1>Olá, <em>${esc(name || 'seja bem-vindo')}</em>.</h1>
       <p class="muted">Seus conteúdos estão aqui. Escolha por onde quer continuar.</p>
       ${resume ? `<a class="resume" href="${dayHref(resume, progressOf(resume).current.number)}" data-link style="${varsToStyle(themeVars(resume.theme))}">
-        <span class="resume-ico">${ICON.play}</span><span class="resume-txt"><small>Continue de onde parou</small><b>${esc(resume.shortName || resume.name)} · ${esc(U(resume).label)} ${progressOf(resume).current.number}</b><span>${esc(progressOf(resume).current.title)}</span></span>${ICON.arrow}</a>` : ''}
+        <span class="resume-ico">${ICON.play}</span><span class="resume-txt"><small>Continue de onde parou</small><b>${esc(resume.shortName || resume.name)} · ${esc(U(resume).label)} ${progressOf(resume).current.number}</b><span>${same(progressOf(resume).current.title, `${U(resume).label} ${progressOf(resume).current.number}`) ? `${progressOf(resume).done} de ${progressOf(resume).total} concluíd${U(resume).o}s` : esc(progressOf(resume).current.title)}</span></span>${ICON.arrow}</a>` : ''}
     </section>
     <div class="section-h"><h2>Meus conteúdos</h2><span class="faint" style="font-size:13px">${own.length} ${own.length === 1 ? 'produto' : 'produtos'}</span></div>
     <div class="pgrid">${own.map(productCard).join('')}</div>
