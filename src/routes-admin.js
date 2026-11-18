@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { makeBackup, listBackups, backupDir } from './backup.js';
+import { sanitizeBlocks, studentBlockAnswers, FILE_TYPES } from './blocks.js';
 import { financeReport, addSpend, importMetaCsv, listSpend, deleteSpend } from './finance.js';
 
 const page = (q) => { const p = Math.max(1, Number(q.page || 1)); const size = Math.min(200, Math.max(10, Number(q.size || 25))); return { limit: size, offset: (p - 1) * size, page: p, size }; };
@@ -134,7 +135,7 @@ export function registerAdminRoutes(r) {
       const product = db.get('SELECT * FROM products WHERE id = ?', e.product_id);
       const lessons = db.all('SELECT * FROM lessons WHERE product_id = ? ORDER BY number', product.id);
       const answers = loadAnswers(u.id, product.id);
-      return { product: { id: product.id, name: product.name, slug: product.slug, kind: product.kind, unitLabel: product.unit_label || 'Dia' }, hasActivities: lessons.some((l) => l.activity_key), status: e.status, states: lessonStates(u.id, product, e, lessons).map((s, i) => ({ ...s, title: lessons[i].title })), answers, computed: compute(answers, rulesFromSettings()) };
+      return { product: { id: product.id, name: product.name, slug: product.slug, kind: product.kind, unitLabel: product.unit_label || 'Dia' }, blockAnswers: studentBlockAnswers(u.id, product.id), hasActivities: lessons.some((l) => l.activity_key), status: e.status, states: lessonStates(u.id, product, e, lessons).map((s, i) => ({ ...s, title: lessons[i].title })), answers, computed: compute(answers, rulesFromSettings()) };
     });
     const sales = db.all('SELECT * FROM sales WHERE user_id = ? OR email = ? ORDER BY created_at DESC', u.id, u.email);
     const notifications = db.all('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 30', u.id);
@@ -352,7 +353,7 @@ export function registerAdminRoutes(r) {
   });
   // Campos do produto (identidade visual incluída). Ordem = colunas de PRODUCT_COLS.
   const PRODUCT_COLS = ['slug', 'name', 'kind', 'tagline', 'description', 'greenn_ids', 'release_mode', 'release_delay_hours', 'access_days', 'materials', 'position', 'active',
-    'theme', 'short_name', 'mentor', 'unit_label', 'show_live', 'sales_url', 'show_in_store', 'badge', 'watch_note'];
+    'theme', 'short_name', 'mentor', 'unit_label', 'show_live', 'sales_url', 'show_in_store', 'badge', 'watch_note', 'quotes_title', 'points_title'];
   const HEX = /^#[0-9a-f]{6}$/i;
   const productFields = (b, cur = {}) => {
     const pick = (k, d = '') => (b[k] !== undefined ? b[k] : cur[k] !== undefined && cur[k] !== null ? cur[k] : d);
@@ -372,7 +373,8 @@ export function registerAdminRoutes(r) {
       String(pick('greenn_ids')).split(/[\s,;]+/).filter(Boolean).join(','), pick('release_mode', 'after_complete'),
       Number(pick('release_delay_hours', 24)), accessDays, JSON.stringify(b.materials ?? jparse(cur.materials, [])), Number(pick('position', 0)), bool('active', 1),
       JSON.stringify(theme), String(pick('short_name') || '').trim() || null, String(pick('mentor') || '').trim() || null, String(pick('unit_label', 'Dia') || 'Dia').trim().slice(0, 20),
-      bool('show_live', 0), salesUrl || null, bool('show_in_store', 0), String(pick('badge') || '').trim().slice(0, 24) || null, String(pick('watch_note') || '').trim().slice(0, 300) || null];
+      bool('show_live', 0), salesUrl || null, bool('show_in_store', 0), String(pick('badge') || '').trim().slice(0, 24) || null, String(pick('watch_note') || '').trim().slice(0, 300) || null,
+      String(pick('quotes_title') || '').trim().slice(0, 60) || null, String(pick('points_title') || '').trim().slice(0, 60) || null];
   };
   r.post('/api/admin/products', (req) => {
     requireAdmin(req, 'admin');
@@ -433,6 +435,28 @@ export function registerAdminRoutes(r) {
     audit(req, 'product.image.remove', p.id, { target: col });
     return { ok: true };
   });
+  // Arquivos de materiais da aula (PDF, planilha, apresentação, áudio…)
+  r.post('/api/admin/files', (req) => {
+    requireAdmin(req, 'admin');
+    const name = String(req.body?.name || 'arquivo').slice(0, 120);
+    const ext = (name.match(/\.([a-z0-9]{2,5})$/i)?.[1] || '').toLowerCase();
+    const t = FILE_TYPES[ext];
+    if (!t) fail(400, 'Tipo de arquivo não permitido. Use PDF, Word, Excel, PowerPoint, ZIP, imagem (JPG/PNG), MP3/M4A, CSV ou TXT.');
+    const m = String(req.body?.data || '').match(/^data:[^;,]*;base64,([A-Za-z0-9+/=]+)$/);
+    if (!m) fail(400, 'Arquivo inválido.');
+    const buf = Buffer.from(m[1], 'base64');
+    if (!buf.length) fail(400, 'Arquivo vazio.');
+    if (buf.length > 30 * 1024 * 1024) fail(413, 'Arquivo muito grande. O máximo é 30 MB.');
+    if (!t.sig(buf)) fail(400, 'O conteúdo do arquivo não confere com a extensão.');
+    const base = name.replace(/\.[^.]+$/, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'arquivo';
+    const dir = path.join(config.dataDir, 'uploads', 'files');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = `${crypto.createHash('sha256').update(buf).digest('hex').slice(0, 12)}-${base}.${ext}`;
+    fs.writeFileSync(path.join(dir, file), buf);
+    audit(req, 'file.upload', null, { file, size: buf.length });
+    return { ok: true, url: `/media/files/${file}`, size: buf.length };
+  });
+
   // Logo da plataforma: ícone quadrado e versões horizontais (fundo claro e fundo escuro)
   const BRAND_TARGETS = { icon: 'brand_logo', wide: 'brand_logo_wide', wide_dark: 'brand_logo_wide_dark' };
   r.post('/api/admin/settings/logo', (req) => {
@@ -460,7 +484,7 @@ export function registerAdminRoutes(r) {
   });
   r.get('/api/admin/products/:id/lessons', (req) => {
     requireAdmin(req);
-    return { rows: db.all('SELECT * FROM lessons WHERE product_id = ? ORDER BY number', Number(req.params.id)).map((l) => ({ ...l, key_phrases: jparse(l.key_phrases, []), verses: jparse(l.verses, []) })) };
+    return { rows: db.all('SELECT * FROM lessons WHERE product_id = ? ORDER BY number', Number(req.params.id)).map((l) => ({ ...l, key_phrases: jparse(l.key_phrases, []), verses: jparse(l.verses, []), blocks: jparse(l.blocks, []) })) };
   });
   const lessonFields = (b, cur = {}) => [b.number ?? cur.number, b.block ?? cur.block ?? '', b.title ?? cur.title, b.subtitle ?? cur.subtitle ?? '', b.objective ?? cur.objective ?? '',
     b.video_url ?? cur.video_url ?? '', b.video_duration ?? cur.video_duration ?? '', b.practice_video_url ?? cur.practice_video_url ?? '', b.practice_duration ?? cur.practice_duration ?? '',
@@ -485,6 +509,7 @@ export function registerAdminRoutes(r) {
     if (db.get('SELECT 1 FROM lessons WHERE product_id = ? AND number = ? AND id <> ?', cur.product_id, f[0], cur.id)) fail(400, `Já existe uma aula com o número ${f[0]}.`);
     db.run(`UPDATE lessons SET number=?, block=?, title=?, subtitle=?, objective=?, video_url=?, video_duration=?, practice_video_url=?, practice_duration=?, key_phrases=?, verses=?, body=?, activity_key=?, release_offset=?, release_message=?, tomorrow=?, published=?, updated_at=? WHERE id = ?`, ...f, now(), cur.id);
     // frase abaixo do vídeo: null = usar a do produto; '' = nenhuma; texto = personalizada
+    if (req.body.blocks !== undefined) db.run('UPDATE lessons SET blocks = ? WHERE id = ?', JSON.stringify(sanitizeBlocks(req.body.blocks)), cur.id);
     if (req.body.watch_note !== undefined) db.run('UPDATE lessons SET watch_note = ? WHERE id = ?', req.body.watch_note === null ? null : String(req.body.watch_note).trim().slice(0, 300), cur.id);
     audit(req, 'lesson.update', cur.id, { title: f[2] });
     return { ok: true };

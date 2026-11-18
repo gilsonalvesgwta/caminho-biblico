@@ -418,9 +418,10 @@ async function pageDay(p, n) {
       <div class="watch-row">${d.watchNote ? `<span class="faint" style="font-size:13px">${esc(d.watchNote)}</span>` : '<span></span>'}${watchBtn('w1', st.watched, 'Aula assistida', 'Marcar aula como assistida')}</div>
     </section>
 
-    ${L.objective ? `<div class="objective" style="margin-top:22px"><div class="eyebrow" style="margin-bottom:6px">Objetivo de hoje</div>${esc(L.objective)}</div>` : ''}
-    ${L.verses?.length ? `<div class="section-h"><h2 style="font-size:20px">A Palavra de hoje</h2></div><div class="verses">${L.verses.map((v) => `<div class="verse"><p>${esc(v.text)}</p><span>${esc(v.ref)}</span></div>`).join('')}</div>` : ''}
-    ${L.key_phrases?.length ? `<div class="section-h"><h2 style="font-size:20px">Para guardar no coração</h2></div><ul class="phrases">${L.key_phrases.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
+    ${L.objective ? `<div class="objective" style="margin-top:22px"><div class="eyebrow" style="margin-bottom:6px">${u.label === 'Dia' ? 'Objetivo de hoje' : `Objetivo d${u.o} ${esc(u.label.toLowerCase())}`}</div>${esc(L.objective)}</div>` : ''}
+    ${quotesHtml(d.product?.quotesTitle || 'Para refletir', L.verses)}
+    ${pointsHtml(d.product?.pointsTitle || 'Para lembrar', L.key_phrases)}
+    ${(d.blocks || []).length ? `<div class="lesson-blocks" id="blocks">${d.blocks.map((b) => blockHtml(b, d.blockAnswers?.[b.id])).join('')}</div>` : ''}
 
     ${L.activity_key ? `<section class="step-card"><div class="step-h"><span class="step-n ${st.practiceWatched ? 'done' : ''}" id="s2">2</span><h2>A prática</h2><span class="meta">${esc(L.practice_duration || '')}</span></div>
       ${v2 ? player(v2, '') + `<div class="watch-row"><span></span>${watchBtn('w2', st.practiceWatched, 'Prática assistida', 'Marcar como assistida')}</div>` : '<p class="muted">Siga os passos abaixo. Leva cerca de ' + esc(L.practice_duration || '15 min') + '.</p>'}
@@ -465,6 +466,7 @@ async function pageDay(p, n) {
     if (pl) cleanups.push(() => pl.destroy());
   }
   bindWatch('#w1'); bindWatch('#w2');
+  bindBlocks(p, n, d.blocks || [], d.blockAnswers || {});
 
   // atividade com salvamento automático (servidor + rascunho local)
   let act = null, saveTimer = null, dirty = false, saving = null;
@@ -523,6 +525,89 @@ async function pageDay(p, n) {
     }
   };
   renderFinish();
+}
+
+
+// ---------- blocos de conteúdo da aula ----------
+function quotesHtml(title, items) {
+  if (!items?.length) return '';
+  return `<div class="section-h"><h2 style="font-size:20px">${esc(title)}</h2></div><div class="verses ${items.length === 1 ? 'one' : ''}">${items.map((v) => `<div class="verse"><p>${esc(v.text)}</p>${v.ref ? `<span>${esc(v.ref)}</span>` : ''}</div>`).join('')}</div>`;
+}
+function pointsHtml(title, items) {
+  if (!items?.length) return '';
+  return `<div class="section-h"><h2 style="font-size:20px">${esc(title)}</h2></div><ul class="phrases">${items.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>`;
+}
+/** Texto simples com **negrito**, *itálico*, [links](https://…) e listas com "- " */
+function richText(src) {
+  const inline = (t) => esc(t)
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, a, h) => `<a href="${h}" target="_blank" rel="noopener noreferrer">${a}</a>`)
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>');
+  return String(src || '').split(/\n{2,}/).map((para) => {
+    const lines = para.split('\n');
+    if (lines.every((l) => /^\s*[-•]\s+/.test(l))) return `<ul>${lines.map((l) => `<li>${inline(l.replace(/^\s*[-•]\s+/, ''))}</li>`).join('')}</ul>`;
+    if (lines.every((l) => /^\s*\d+[.)]\s+/.test(l))) return `<ol>${lines.map((l) => `<li>${inline(l.replace(/^\s*\d+[.)]\s+/, ''))}</li>`).join('')}</ol>`;
+    return `<p>${lines.map(inline).join('<br>')}</p>`;
+  }).join('');
+}
+const FILE_ICON = { pdf: 'PDF', doc: 'DOC', docx: 'DOC', xls: 'XLS', xlsx: 'XLS', csv: 'CSV', ppt: 'PPT', pptx: 'PPT', zip: 'ZIP', mp3: 'MP3', m4a: 'M4A', png: 'IMG', jpg: 'IMG', jpeg: 'IMG' };
+const fileKind = (url) => { const e = (String(url).split('?')[0].match(/\.([a-z0-9]{2,5})$/i)?.[1] || '').toLowerCase(); return FILE_ICON[e] || null; };
+const BLOCK_ICON = {
+  materials: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
+  exercise: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  checklist: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5"/></svg>',
+  video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="3"/><path d="M17 10l4-2.5v9L17 14"/></svg>',
+};
+const SV = (d) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const CALLOUT = {
+  tip: ['Dica', SV('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2.2h5c.1-1 .5-1.7 1.1-2.2A6 6 0 0 0 12 3z"/>')],
+  info: ['Para saber', SV('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>')],
+  warning: ['Atenção', SV('<path d="M10.3 4.2L2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>')],
+  important: ['Importante', SV('<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>')],
+};
+function blockHtml(b, ans) {
+  const head = (fallback, icon) => `<div class="blk-h">${icon ? `<span class="blk-ico">${icon}</span>` : ''}<h2>${esc(b.title || fallback)}</h2></div>`;
+  switch (b.type) {
+    case 'text': return `<section class="blk blk-text">${b.title ? `<h2 class="blk-t">${esc(b.title)}</h2>` : ''}<div class="rich">${richText(b.body)}</div></section>`;
+    case 'quotes': return `<section class="blk-bare">${quotesHtml(b.title || 'Para refletir', b.items)}</section>`;
+    case 'points': return `<section class="blk-bare">${pointsHtml(b.title || 'Para lembrar', b.items)}</section>`;
+    case 'callout': { const [lab, ic] = CALLOUT[b.variant] || CALLOUT.tip; return `<aside class="blk callout ${b.variant || 'tip'}"><span class="co-ic" aria-hidden="true">${ic}</span><div><b>${esc(b.title || lab)}</b><div class="rich">${richText(b.body)}</div></div></aside>`; }
+    case 'materials': return `<section class="blk">${head('Materiais de apoio', BLOCK_ICON.materials)}<div class="mats">${(b.items || []).map((m) => { const k = fileKind(m.url); return `<a class="mat" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer"${k && k !== 'IMG' ? ' download' : ''}><span class="mat-k ${k ? '' : 'link'}">${k || '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>'}</span><span class="mat-t"><b>${esc(m.title)}</b>${m.desc ? `<small>${esc(m.desc)}</small>` : ''}</span><span class="mat-go">${k && k !== 'IMG' ? 'Baixar' : 'Abrir'} ${ICON.arrow}</span></a>`; }).join('')}</div></section>`;
+    case 'exercise': return `<section class="blk blk-ex" data-blk="${b.id}">${head('Exercício', BLOCK_ICON.exercise)}${b.required ? '<span class="blk-req">Obrigatório para concluir</span>' : ''}${b.questions.map((q, i) => `<div class="field ex-q"><label>${b.questions.length > 1 ? `<span class="ex-n">${i + 1}</span>` : ''}${esc(q)}</label><textarea class="input" rows="3" data-q="${i}" placeholder="Escreva a sua resposta">${esc(ans?.answers?.[i] || '')}</textarea></div>`).join('')}<div class="blk-save" data-save>${ans ? 'Resposta salva' : 'As respostas são salvas automaticamente'}</div></section>`;
+    case 'checklist': { const done = new Set(ans?.done || []); return `<section class="blk blk-ck" data-blk="${b.id}">${head('Tarefas', BLOCK_ICON.checklist)}${b.required ? '<span class="blk-req">Obrigatório para concluir</span>' : ''}<div class="ck-prog"><span data-ckc>${done.size} de ${b.items.length}</span><i><b style="width:${(done.size / b.items.length) * 100}%"></b></i></div><ul class="ck">${b.items.map((t, i) => `<li><label class="${done.has(i) ? 'on' : ''}"><input type="checkbox" data-i="${i}" ${done.has(i) ? 'checked' : ''}><span class="ck-box">${ICON.check}</span><span>${esc(t)}</span></label></li>`).join('')}</ul></section>`; }
+    case 'video': { const own = youtubeId(b.url); return `<section class="blk blk-vid">${head('Vídeo complementar', BLOCK_ICON.video)}${b.duration ? `<span class="blk-meta">${esc(b.duration)}</span>` : ''}${own ? `<div id="pv-${b.id}"></div>` : `<div class="player">${videoEmbed(b.url, b.title || 'Vídeo') || '<div class="player-empty"><div><b>Vídeo</b>Em breve.</div></div>'}</div>`}</section>`; }
+    case 'button': return `<section class="blk blk-cta">${b.title ? `<h2 class="blk-t">${esc(b.title)}</h2>` : ''}${b.body ? `<p class="muted">${esc(b.body)}</p>` : ''}<a class="btn btn-gold" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">${esc(b.label || 'Acessar')} ${ICON.arrow}</a></section>`;
+    default: return '';
+  }
+}
+function bindBlocks(p, n, blocks, answers) {
+  const save = (b, data, el) => api(`/api/app/p/${p.slug}/day/${n}/blocks/${b.id}`, { method: 'PUT', body: { data } })
+    .then(() => { if (el) el.textContent = 'Resposta salva'; answers[b.id] = data; })
+    .catch((e) => { if (el) el.textContent = 'Não foi possível salvar. Verifique a conexão.'; toast(e.message, { error: true }); });
+  for (const b of blocks) {
+    const box = document.querySelector(`[data-blk="${b.id}"]`);
+    if (b.type === 'exercise' && box) {
+      let t = null; const st = box.querySelector('[data-save]');
+      const collect = () => ({ answers: [...box.querySelectorAll('[data-q]')].map((x) => x.value) });
+      box.addEventListener('input', () => { st.textContent = 'Salvando…'; clearTimeout(t); t = setTimeout(() => save(b, collect(), st), 900); });
+      box.addEventListener('focusout', () => { if (t) { clearTimeout(t); t = null; save(b, collect(), st); } });
+      cleanups.push(() => { if (t) { clearTimeout(t); save(b, collect(), null); } });
+    }
+    if (b.type === 'checklist' && box) {
+      box.addEventListener('change', (e) => {
+        const c = e.target.closest('input[type=checkbox]'); if (!c) return;
+        c.closest('label').classList.toggle('on', c.checked);
+        const done = [...box.querySelectorAll('input[type=checkbox]')].map((x, i) => (x.checked ? i : -1)).filter((i) => i >= 0);
+        box.querySelector('[data-ckc]').textContent = `${done.length} de ${b.items.length}`;
+        box.querySelector('.ck-prog b').style.width = `${(done.length / b.items.length) * 100}%`;
+        if (done.length === b.items.length) toast('Tarefas concluídas!');
+        save(b, { done }, null);
+      });
+    }
+    if (b.type === 'video' && youtubeId(b.url)) {
+      const pl = mountPlayer(document.getElementById(`pv-${b.id}`), { url: b.url, title: b.title || 'Vídeo complementar', storageKey: `${ME.user.id}:${p.slug}:${n}:${b.id}` });
+      if (pl) cleanups.push(() => pl.destroy());
+    }
+  }
 }
 
 const norm = (x) => String(x || '').trim().toLowerCase();

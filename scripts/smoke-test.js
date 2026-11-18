@@ -131,6 +131,45 @@ try {
   assert.equal((await call('user', 'POST', '/api/app/p/riqueza-a-dois/day/1/progress', { action: 'watched' })).json.state.watched, true);
   assert.equal((await call('user', 'POST', '/api/app/p/riqueza-a-dois/day/1/progress', { action: 'unwatched' })).json.state.watched, false);
   step('frase abaixo do vídeo (produto, aula, nenhuma) e desmarcar aula assistida');
+
+  // blocos da aula: materiais, exercícios, tarefas, destaques…
+  const blocosOk = [
+    { type: 'text', title: 'Resumo', body: '**Importante**: leia.' },
+    { type: 'materials', items: [{ title: 'Planilha', url: 'https://exemplo.com/p.xlsx' }, { title: '', url: '' }] },
+    { type: 'exercise', title: 'Reflexão', questions: ['Pergunta 1', 'Pergunta 2'], required: true },
+    { type: 'checklist', title: 'Tarefas', items: ['Baixar', 'Preencher'], required: true },
+    { type: 'callout', variant: 'warning', body: 'Atenção' }, { type: 'video', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+    { type: 'button', label: 'Grupo', url: 'https://exemplo.com/grupo' }, { type: 'quotes', items: [{ text: 'Frase', ref: 'Autor' }] }, { type: 'points', items: ['A', 'B'] },
+  ];
+  assert.equal((await call('admin', 'PUT', `/api/admin/lessons/${l1.id}`, { blocks: [{ type: 'materials', items: [{ title: 'x', url: 'javascript:alert(1)' }] }] })).status, 400);
+  assert.equal((await call('admin', 'PUT', `/api/admin/lessons/${l1.id}`, { blocks: [{ type: 'script' }] })).status, 400);
+  assert.equal((await call('admin', 'PUT', `/api/admin/lessons/${l1.id}`, { blocks: blocosOk })).status, 200);
+  const dB = (await call('user', 'GET', '/api/app/p/riqueza-a-dois/day/1')).json;
+  assert.equal(dB.blocks.length, 9); assert.equal(dB.blocks[1].items.length, 1); assert.ok(dB.blocks.every((b) => /^[a-z0-9]{4,24}$/.test(b.id)));
+  const ex = dB.blocks[2], ck = dB.blocks[3];
+  const comp = async () => call('user', 'POST', '/api/app/p/riqueza-a-dois/day/1/progress', { action: 'complete' });
+  assert.match((await comp()).json.error || '', /Responda o exercício/);
+  await call('user', 'PUT', `/api/app/p/riqueza-a-dois/day/1/blocks/${ex.id}`, { data: { answers: ['Minha resposta 1', 'Minha resposta 2'] } });
+  assert.equal((await call('user', 'PUT', `/api/app/p/riqueza-a-dois/day/1/blocks/${ck.id}`, { data: { done: [0] } })).json.data.done.length, 1);
+  assert.match((await comp()).json.error || '', /Conclua as tarefas/);
+  assert.deepEqual((await call('user', 'PUT', `/api/app/p/riqueza-a-dois/day/1/blocks/${ck.id}`, { data: { done: [1, 0, 7, 'x'] } })).json.data.done, [0, 1]);
+  assert.equal((await call('user', 'PUT', `/api/app/p/riqueza-a-dois/day/1/blocks/nao-existe`, { data: {} })).status, 404);
+  assert.equal((await call('user', 'PUT', `/api/app/p/riqueza-a-dois/day/1/blocks/${dB.blocks[0].id}`, { data: {} })).status, 404);
+  const dB2 = (await call('user', 'GET', '/api/app/p/riqueza-a-dois/day/1')).json;
+  assert.equal(dB2.blockAnswers[ex.id].answers[1], 'Minha resposta 2');
+  const ficha = (await call('admin', 'GET', `/api/admin/students/${novo.id}`)).json;
+  const ba = ficha.journeys.find((j) => j.product.slug === 'riqueza-a-dois').blockAnswers;
+  assert.equal(ba.length, 2); assert.equal(ba[0].items[0].a, 'Minha resposta 1'); assert.equal(ba[1].items.every((x) => x.done), true);
+  // arquivos de materiais
+  const pdf = 'data:application/pdf;base64,' + Buffer.from('%PDF-1.4\n%teste\n').toString('base64');
+  const upf = (await call('admin', 'POST', '/api/admin/files', { name: 'Guia Prático (v2).pdf', data: pdf })).json;
+  assert.match(upf.url, /^\/media\/files\/[a-f0-9]{12}-guia-pratico-v2\.pdf$/);
+  const rf = await fetch(BASE + upf.url); assert.equal(rf.status, 200); assert.equal(rf.headers.get('content-type'), 'application/pdf');
+  assert.equal((await call('admin', 'POST', '/api/admin/files', { name: 'virus.exe', data: pdf })).status, 400);
+  assert.equal((await call('admin', 'POST', '/api/admin/files', { name: 'pagina.svg', data: pdf })).status, 400);
+  assert.equal((await call('admin', 'POST', '/api/admin/files', { name: 'falso.pdf', data: 'data:application/pdf;base64,' + Buffer.from('<html>').toString('base64') })).status, 400);
+  assert.equal((await call('user', 'POST', '/api/admin/files', { name: 'a.pdf', data: pdf })).status, 401);
+  step('blocos da aula: validação, exercícios e tarefas obrigatórios, respostas no painel e upload de materiais');
   const c1 = (await call('user', 'POST', '/api/app/p/riqueza-a-dois/day/1/progress', { action: 'complete' })).json;
   assert.equal(c1.next.available, true); step('curso sem atividade: concluir aula 1 libera a aula 2 na hora');
 

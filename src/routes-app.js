@@ -5,6 +5,7 @@ import { sendEmail, resetEmail } from './mailer.js';
 import { config } from './config.js';
 import { normEmail, jparse, lessonStates, refreshSummary, nextLive, rulesFromSettings, loadAnswers, productPublic } from './services.js';
 import { emit } from './events.js';
+import { lessonBlocks, loadBlockAnswers, saveBlockAnswer, missingRequired } from './blocks.js';
 
 const publicSettings = (s = getSettings()) => ({
   brand_name: s.brand_name, brand_short: s.brand_short, mentor_name: s.mentor_name, brand_tagline: s.brand_tagline,
@@ -109,9 +110,11 @@ export function registerAppRoutes(r) {
     if (i < 0) fail(404, 'Dia não encontrado.');
     const st = states[i];
     if (!st.available) return { locked: true, product: { slug: product.slug, unitLabel: product.unit_label || 'Dia', total: lessons.length }, lesson: lessonOut(lessons[i]), state: st };
-    const meta = { slug: product.slug, unitLabel: product.unit_label || 'Dia', total: lessons.length, releaseMode: product.release_mode };
+    const meta = { slug: product.slug, unitLabel: product.unit_label || 'Dia', total: lessons.length, releaseMode: product.release_mode, quotesTitle: product.quotes_title || 'Para refletir', pointsTitle: product.points_title || 'Para lembrar' };
+    const blocks = lessonBlocks(lessons[i]);
+    const blockAnswers = loadBlockAnswers(u.id, lessons[i].id);
     const watchNote = lessons[i].watch_note ?? product.watch_note ?? '';
-    return { product: meta, lesson: lessonOut(lessons[i], true), watchNote, state: st, answers: loadAnswers(u.id, product.id), next: lessons[i + 1] ? { number: lessons[i + 1].number, title: lessons[i + 1].title, ...states[i + 1] } : null, live: product.show_live && i === lessons.length - 1 ? nextLive() : null, delayHours: product.release_delay_hours };
+    return { product: meta, lesson: lessonOut(lessons[i], true), watchNote, blocks, blockAnswers, state: st, answers: loadAnswers(u.id, product.id), next: lessons[i + 1] ? { number: lessons[i + 1].number, title: lessons[i + 1].title, ...states[i + 1] } : null, live: product.show_live && i === lessons.length - 1 ? nextLive() : null, delayHours: product.release_delay_hours };
   });
 
   r.put('/api/app/p/:slug/answers/:day', (req) => {
@@ -148,6 +151,7 @@ export function registerAppRoutes(r) {
     }
     const col = { watched: 'watched_at', practice: 'practice_watched_at', complete: 'completed_at' }[req.body.action];
     if (!col) fail(400, 'Ação inválida.');
+    if (col === 'completed_at') { const miss = missingRequired(u.id, l); if (miss) fail(400, miss); }
     if (col === 'completed_at' && l.activity_key && !db.get('SELECT 1 FROM answers WHERE user_id = ? AND product_id = ? AND day = ?', u.id, product.id, l.number)) fail(400, 'Salve a sua atividade antes de concluir o dia.');
     db.run(`INSERT INTO progress (user_id, lesson_id, ${col}, updated_at) VALUES (?,?,?,?) ON CONFLICT(user_id, lesson_id) DO UPDATE SET ${col} = COALESCE(progress.${col}, excluded.${col}), updated_at = excluded.updated_at`, u.id, l.id, t, t);
     if (col === 'completed_at') {
@@ -156,6 +160,15 @@ export function registerAppRoutes(r) {
     }
     const fresh = lessonStates(u.id, product, db.get('SELECT * FROM enrollments WHERE user_id = ? AND product_id = ?', u.id, product.id), lessons);
     return { ok: true, state: fresh[i], next: fresh[i + 1] || null };
+  });
+
+  // resposta de exercício / estado da lista de tarefas
+  r.put('/api/app/p/:slug/day/:n/blocks/:bid', (req) => {
+    const u = requireUser(req);
+    const { lessons, states } = loadEnrollment(u.id, req.params.slug);
+    const i = lessons.findIndex((l) => l.number === Number(req.params.n));
+    if (i < 0 || !states[i].available) fail(403, 'Esta aula ainda não foi liberada.');
+    return { ok: true, data: saveBlockAnswer(u.id, lessons[i], String(req.params.bid), req.body?.data || {}), savedAt: now() };
   });
 
   r.get('/api/app/p/:slug/results', (req) => {

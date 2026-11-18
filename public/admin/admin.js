@@ -425,6 +425,7 @@ async function pageStudent(id) {
         ${d.journeys.map((jj) => { const uu = jj.product.unitLabel || 'Dia'; const isJ = jj === j; return `<div class="panel"><div class="panel-h"><div><div class="eyebrow">${esc({ challenge: 'Desafio', course: 'Curso' }[jj.product.kind] || '')}${jj.status !== 'active' ? ` · ${esc(STATUS[jj.status]?.[0] || jj.status)}` : ''}</div><h3 style="margin-top:4px">${esc(jj.product.name)}</h3></div><div style="display:flex;gap:8px;align-items:center">${can('support') && jj.status === 'active' ? `<button class="btn btn-soft btn-sm" data-unlock="${jj.product.id}">Liberar ${/^(aula|lição|semana|etapa|parte|sessão)$/i.test(uu) ? 'próxima' : 'próximo'} ${esc(uu.toLowerCase())} agora</button>` : ''}</div></div><div class="panel-b">
           <div class="days" style="grid-template-columns:repeat(${Math.min(7, Math.max(1, jj.states.length))},1fr)">${jj.states.map((s) => `<div class="${s.completed ? 'done' : s.available ? 'open' : ''}" title="${esc(s.title)}"><b>${s.number}</b>${s.completed ? 'concluído' : s.available ? 'liberado' : s.availableAt ? fmtDateTime(s.availableAt).slice(0, 8) : 'bloqueado'}</div>`).join('') || '<span class="faint">Sem aulas publicadas.</span>'}</div>
           ${isJ && c ? `<div class="cols" style="margin-top:16px">${[['Renda', brl(c.renda)], ['Sobra real', ans[4] ? brl(c.sobraReal) : '—'], ['Dívidas', `${brl(c.dividaTotal)}${c.dividasAtraso ? ` · ${c.dividasAtraso} em atraso` : ''}`], ['Fase', c.faseNome || '—'], ['Guardado', ans[4] ? brl(c.guardado) : '—'], ['Pode direcionar/mês', brl(c.direcionar)], ['Paz D1 → D7', `${c.pazD1 ?? '—'} → ${c.pazD7 ?? '—'}`], ['Score de lead', `${c.leadScore}/100`]].map(([l, v]) => `<div class="c3"><div class="faint" style="font-size:12px;font-weight:700">${l}</div><div style="font-weight:700;margin-top:2px">${v}</div></div>`).join('')}</div>` : ''}
+          ${jj.blockAnswers?.length ? `<details class="ba"><summary>Exercícios e tarefas (${jj.blockAnswers.length})</summary>${jj.blockAnswers.map((a) => `<div class="ba-item"><div class="ba-h"><b>${esc(a.title)}</b><small>${esc(uu)} ${a.lesson} · ${esc(a.lessonTitle)} · ${relTime(a.updatedAt)}</small></div>${a.type === 'exercise' ? a.items.map((x) => `<div class="ba-q">${esc(x.q)}</div>${x.a ? `<div class="quote">${esc(x.a)}</div>` : '<span class="faint">Sem resposta</span>'}`).join('') : `<ul class="ba-ck">${a.items.map((x) => `<li class="${x.done ? 'on' : ''}">${x.done ? '✓' : '○'} ${esc(x.q)}</li>`).join('')}</ul>`}</div>`).join('')}</details>` : ''}
         </div></div>`; }).join('')}
         ${j ? '' : (d.journeys.length ? '' : '<div class="panel panel-b"><p class="muted" style="margin:0">Este aluno ainda não tem produtos com aulas.</p></div>')}
         <div class="panel" ${j ? '' : 'hidden'}><div class="panel-h"><h3>Respostas das atividades · ${esc(j?.product.name || '')}</h3><div class="tabs" style="margin:0" id="dtabs">${[1, 2, 3, 4, 5, 6, 7].map((n) => `<button data-d="${n}" ${ans[n] ? '' : 'style="opacity:.45"'}>D${n}</button>`).join('')}</div></div><div class="panel-b" id="dans"><p class="faint">Selecione um dia.</p></div></div>
@@ -606,6 +607,8 @@ function productModal(p = {}, startTab = 'geral') {
       <div class="field"><label>Cada aula se chama</label>${opt('unit_label', [['Dia', 'Dia (Dia 1, Dia 2…)'], ['Aula', 'Aula'], ['Módulo', 'Módulo'], ['Lição', 'Lição'], ['Semana', 'Semana'], ['Episódio', 'Episódio'], ['Material', 'Material']], p.unit_label || 'Dia')}</div>
       <div class="field full"><label>Frase de apoio</label><input class="input" name="tagline" value="${esc(p.tagline)}" placeholder="Aparece na vitrine e no topo da jornada"></div>
       <div class="field full"><label>Frase abaixo do vídeo (padrão das aulas)</label><input class="input" name="watch_note" value="${esc(p.watch_note)}" maxlength="300" placeholder="Ex.: Assista com atenção. Se puder, tenha uma Bíblia por perto."><span class="hint">Opcional. Vazio = sem frase. Cada aula pode usar esta, ter uma própria ou nenhuma.</span></div>
+      <div class="field"><label>Título da seção de citações</label><input class="input" name="quotes_title" value="${esc(p.quotes_title)}" maxlength="60" placeholder="Para refletir"><span class="hint">Ex.: A Palavra de hoje, Frases da aula, Referências.</span></div>
+      <div class="field"><label>Título da seção de pontos-chave</label><input class="input" name="points_title" value="${esc(p.points_title)}" maxlength="60" placeholder="Para lembrar"><span class="hint">Ex.: Para guardar no coração, Resumo, Principais aprendizados.</span></div>
       <div class="field"><label>IDs do produto na Greenn</label><input class="input" name="greenn_ids" value="${esc(p.greenn_ids)}" placeholder="Ex.: 123456, 123457"><span class="hint">Número da URL de edição do produto na Greenn. Vários separados por vírgula.</span></div>
       <div class="field"><label>Duração do acesso (dias)</label><input class="input" name="access_days" type="number" min="1" value="${esc(p.access_days ?? '')}" placeholder="Vazio = vitalício"></div>
       <div class="field"><label>Liberação das aulas</label>${opt('release_mode', [['after_complete', 'X horas após concluir a anterior'], ['sequential', 'Na hora, ao concluir a anterior'], ['drip', 'Por calendário (dias após a compra)'], ['open', 'Tudo liberado de uma vez']], p.release_mode || 'after_complete')}</div>
@@ -708,7 +711,7 @@ async function pageProduct(id) {
   const [{ rows: products }, { rows: lessons }] = await Promise.all([api('/api/admin/products'), api(`/api/admin/products/${id}/lessons`)]);
   const p = products.find((x) => String(x.id) === String(id));
   if (!p) return go('/conteudo');
-  currentProductNote = p.watch_note || '';
+  currentProductNote = p.watch_note || ''; currentProduct = p;
   $('#main').innerHTML = `<a href="${BASE}/conteudo" data-go="/conteudo" class="faint" style="font-weight:700">← Conteúdo</a>` + head(esc(p.name), esc(p.tagline || ''), can('admin') ? `<button class="btn btn-soft" id="cfg">Configurar produto</button>${p.kind !== 'bonus' ? '<button class="btn btn-primary" id="nl">+ Nova aula</button>' : ''}` : '') + `
     <div class="panel">${lessons.map((l) => `<div class="lesson-item" data-id="${l.id}"><div class="n">${l.number}</div><div style="flex:1;min-width:0"><b style="font-size:15px">${esc(l.title)}</b><br><small class="faint">${esc(l.block || '')}${l.video_duration ? ` · ${esc(l.video_duration)}` : ''} · ${l.video_url ? 'aula ✓' : '<span style="color:var(--warn)">aula sem vídeo</span>'} · ${l.practice_video_url ? 'prática ✓' : '<span style="color:var(--warn)">prática sem vídeo</span>'}</small></div>${l.published ? '<span class="badge ok">Publicada</span>' : '<span class="badge">Rascunho</span>'}</div>`).join('') || '<div class="empty">Nenhuma aula neste produto.</div>'}</div>`;
   $('#cfg')?.addEventListener('click', () => productModal(p));
@@ -779,50 +782,174 @@ function bindCover(box, lid) {
 }
 let currentProductId = null;
 let currentProductNote = '';
+let currentProduct = null;
 
 async function lessonModal(lid, pid) {
   currentProductId = pid;
   const { rows } = await api(`/api/admin/products/${pid}/lessons`);
   const l = rows.find((x) => x.id === lid);
   const ro = !can('admin') ? 'disabled' : '';
-  modal({ title: `Dia ${l.number}: ${l.title}`, eyebrow: 'Editar aula', wide: true, body: `<form id="lf" class="form-grid"><fieldset ${ro} style="display:contents">
-    <div class="field"><label>Número do dia</label><input class="input" type="number" name="number" value="${l.number}"></div>
-    <div class="field"><label>Bloco</label><input class="input" name="block" value="${esc(l.block)}" placeholder="Coração, Princípios, Patrimônio"></div>
-    <div class="field full"><label>Título</label><input class="input" name="title" value="${esc(l.title)}"></div>
-    <div class="field full"><label>Subtítulo</label><input class="input" name="subtitle" value="${esc(l.subtitle)}"></div>
-    <div class="field full"><label>Objetivo do dia</label><textarea class="input" name="objective">${esc(l.objective)}</textarea></div>
-    <div class="field"><label>Vídeo 1 · Aula (link)</label><input class="input" name="video_url" value="${esc(l.video_url)}" placeholder="YouTube, Vimeo, Panda Video, Bunny…"></div>
-    <div class="field"><label>Duração da aula</label><input class="input" name="video_duration" value="${esc(l.video_duration)}"></div>
-    <div class="field"><label>Vídeo 2 · Prática (link)</label><input class="input" name="practice_video_url" value="${esc(l.practice_video_url)}"></div>
-    <div class="field"><label>Duração da prática</label><input class="input" name="practice_duration" value="${esc(l.practice_duration)}"></div>
-    <div class="field"><label>Frase abaixo do vídeo</label><select class="input" id="wn-mode"><option value="product" ${l.watch_note == null ? 'selected' : ''}>Usar a do produto</option><option value="custom" ${l.watch_note ? 'selected' : ''}>Personalizada para esta aula</option><option value="none" ${l.watch_note === '' ? 'selected' : ''}>Sem frase</option></select></div>
-    <div class="field"><label>&nbsp;</label><input class="input" id="wn-text" maxlength="300" value="${esc(l.watch_note || '')}" placeholder="${esc(currentProductNote || 'O produto está sem frase padrão')}"></div>
-    <div class="full cover-grid">${coverField('video', 'Capa da aula', l.cover_url, l.video_url)}${coverField('practice', 'Capa da prática', l.practice_cover_url, l.practice_video_url)}</div>
-    <div class="field full"><label>Versículos (um por linha: Referência | Texto)</label><textarea class="input" name="verses" rows="5">${esc(l.verses.map((v) => `${v.ref} | ${v.text}`).join('\n'))}</textarea></div>
-    <div class="field full"><label>Frases-chave (uma por linha)</label><textarea class="input" name="key_phrases" rows="4">${esc(l.key_phrases.join('\n'))}</textarea></div>
-    <div class="field full"><label>Curiosidade para o próximo dia</label><textarea class="input" name="tomorrow">${esc(l.tomorrow)}</textarea></div>
-    <div class="field full"><label>Mensagem de liberação (e-mail e WhatsApp)</label><textarea class="input" name="release_message" rows="6">${esc(l.release_message)}</textarea><span class="hint">Use [nome] e [link]. Vai no e-mail “Dia liberado” e no evento <code>day.released</code> para automação de WhatsApp.</span></div>
-    <div class="field"><label>Atividade</label><select class="input" name="activity_key"><option value="">Sem atividade</option>${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="d${n}" ${l.activity_key === `d${n}` ? 'selected' : ''}>Atividade do Dia ${n}</option>`).join('')}</select></div>
-    <div class="field"><label>Dias após a compra (só no modo calendário)</label><input class="input" type="number" name="release_offset" value="${l.release_offset}"></div>
-    <label class="switch full"><input type="checkbox" name="published" ${l.published ? 'checked' : ''}> Publicada</label>
-    ${ro ? '' : `<div class="full" style="margin-top:16px;display:flex;gap:8px"><button class="btn btn-primary">Salvar aula</button>${can('owner') ? '<button type="button" class="btn btn-danger" id="dl">Excluir</button>' : ''}</div>`}</fieldset></form>`,
+  const P = currentProduct || {};
+  const unit = P.unit_label || 'Dia';
+  const fem = /^(aula|lição|semana|etapa|parte|sessão)$/i.test(unit);
+  const qTitle = P.quotes_title || 'Para refletir', pTitle = P.points_title || 'Para lembrar';
+  const blocks = JSON.parse(JSON.stringify(l.blocks || []));
+  modal({ title: `${unit} ${l.number}: ${l.title}`, eyebrow: 'Editar aula', wide: true, body: `
+    <div class="tabs" id="ltabs"><button type="button" data-t="aula">${esc(unit)}</button><button type="button" data-t="videos">Vídeos</button><button type="button" data-t="conteudo">Conteúdo e blocos <span class="tab-n" id="bcount">${blocks.length || ''}</span></button><button type="button" data-t="lib">Liberação e avisos</button></div>
+    <form id="lf"><fieldset ${ro} style="display:contents">
+    <section data-lsec="aula" class="form-grid">
+      <div class="field"><label>Número</label><input class="input" type="number" name="number" value="${l.number}"></div>
+      <div class="field"><label>Módulo / bloco</label><input class="input" name="block" value="${esc(l.block)}" placeholder="Ex.: Fundamentos, Prática, Bônus"></div>
+      <div class="field full"><label>Título</label><input class="input" name="title" value="${esc(l.title)}"></div>
+      <div class="field full"><label>Subtítulo</label><input class="input" name="subtitle" value="${esc(l.subtitle)}"></div>
+      <div class="field full"><label>Objetivo d${fem ? 'a' : 'o'} ${esc(unit.toLowerCase())}</label><textarea class="input" name="objective" placeholder="Opcional. Aparece em destaque logo abaixo do vídeo.">${esc(l.objective)}</textarea></div>
+      <label class="switch full"><input type="checkbox" name="published" ${l.published ? 'checked' : ''}> Publicada (visível para os alunos)</label>
+    </section>
+    <section data-lsec="videos" class="form-grid" hidden>
+      <div class="field"><label>Vídeo principal (link)</label><input class="input" name="video_url" value="${esc(l.video_url)}" placeholder="YouTube, Vimeo, Panda Video, Bunny…"></div>
+      <div class="field"><label>Duração</label><input class="input" name="video_duration" value="${esc(l.video_duration)}" placeholder="Ex.: 18 min"></div>
+      <div class="field"><label>Vídeo da prática (opcional)</label><input class="input" name="practice_video_url" value="${esc(l.practice_video_url)}"><span class="hint">Aparece junto da atividade, quando houver.</span></div>
+      <div class="field"><label>Duração da prática</label><input class="input" name="practice_duration" value="${esc(l.practice_duration)}"></div>
+      <div class="field"><label>Frase abaixo do vídeo</label><select class="input" id="wn-mode"><option value="product" ${l.watch_note == null ? 'selected' : ''}>Usar a do produto</option><option value="custom" ${l.watch_note ? 'selected' : ''}>Personalizada para esta aula</option><option value="none" ${l.watch_note === '' ? 'selected' : ''}>Sem frase</option></select></div>
+      <div class="field"><label>&nbsp;</label><input class="input" id="wn-text" maxlength="300" value="${esc(l.watch_note || '')}" placeholder="${esc(currentProductNote || 'O produto está sem frase padrão')}"></div>
+      <div class="full cover-grid">${coverField('video', 'Capa da aula', l.cover_url, l.video_url)}${coverField('practice', 'Capa da prática', l.practice_cover_url, l.practice_video_url)}</div>
+    </section>
+    <section data-lsec="conteudo" class="form-grid" hidden>
+      <div class="field full"><label>Citações em destaque · seção “${esc(qTitle)}”</label><textarea class="input" name="verses" rows="4" placeholder="Uma por linha. Para mostrar a fonte: Fonte | Texto\nProvérbios 4:23 | Sobre tudo o que se deve guardar…">${esc(l.verses.map((v) => (v.ref ? `${v.ref} | ${v.text}` : v.text)).join('\n'))}</textarea><span class="hint">Opcional. O título da seção muda em Produtos › Configurar › Geral.</span></div>
+      <div class="field full"><label>Pontos-chave · seção “${esc(pTitle)}”</label><textarea class="input" name="key_phrases" rows="3" placeholder="Um por linha">${esc(l.key_phrases.join('\n'))}</textarea></div>
+      <div class="full"><div class="bb-head"><div><b>Blocos d${fem ? 'a' : 'o'} ${esc(unit.toLowerCase())}</b><p class="hint" style="margin:2px 0 0">Monte a aula com materiais, exercícios, tarefas, destaques e mais. Aparecem nesta ordem, depois dos pontos-chave.</p></div></div>
+        <div id="bb"></div>
+        ${ro ? '' : `<div class="bb-add"><span class="label">Adicionar bloco</span><div class="bb-types">${Object.entries(BLOCK_DEFS).map(([k, [n, d, ic]]) => `<button type="button" class="bb-type" data-add="${k}"><span class="bb-ic">${ic}</span><span><b>${n}</b><small>${d}</small></span></button>`).join('')}</div></div>`}
+      </div>
+    </section>
+    <section data-lsec="lib" class="form-grid" hidden>
+      <div class="field"><label>Atividade guiada (desafio)</label><select class="input" name="activity_key"><option value="">Sem atividade</option>${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="d${n}" ${l.activity_key === `d${n}` ? 'selected' : ''}>Atividade do Dia ${n}</option>`).join('')}</select><span class="hint">Formulários do desafio de 7 dias. Para outros cursos, use os blocos Exercício e Tarefas.</span></div>
+      <div class="field"><label>Dias após a compra (só no modo calendário)</label><input class="input" type="number" name="release_offset" value="${l.release_offset}"></div>
+      <div class="field full"><label>Gancho para ${fem ? 'a próxima' : 'o próximo'} (aparece ao concluir)</label><textarea class="input" name="tomorrow" placeholder="Ex.: Na próxima aula você vai descobrir…">${esc(l.tomorrow)}</textarea></div>
+      <div class="field full"><label>Mensagem de liberação (e-mail e WhatsApp)</label><textarea class="input" name="release_message" rows="6">${esc(l.release_message)}</textarea><span class="hint">Use [nome] e [link]. Vai no e-mail de liberação e no evento <code>day.released</code> para automação de WhatsApp.</span></div>
+    </section>
+    ${ro ? '' : `<div class="modal-actions"><button class="btn btn-primary">Salvar aula</button>${can('owner') ? '<button type="button" class="btn btn-danger" id="dl">Excluir</button>' : ''}</div>`}</fieldset></form>`,
   onMount: (m, close) => {
-    const wnSync = () => { const md = m.querySelector('#wn-mode').value, t = m.querySelector('#wn-text'); t.disabled = md !== 'custom' || !!ro; if (md === 'product') t.value = ''; if (md === 'none') t.value = ''; t.placeholder = md === 'product' ? (currentProductNote || 'O produto está sem frase padrão') : md === 'none' ? 'Nenhuma frase nesta aula' : 'Escreva a frase desta aula'; };
+    const tab = (t) => { m.querySelectorAll('#ltabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); m.querySelectorAll('[data-lsec]').forEach((x) => (x.hidden = x.dataset.lsec !== t)); };
+    m.querySelectorAll('#ltabs button').forEach((b) => (b.onclick = () => tab(b.dataset.t)));
+    tab('aula');
+    const wnSync = () => { const md = m.querySelector('#wn-mode').value, t = m.querySelector('#wn-text'); t.disabled = md !== 'custom' || !!ro; if (md !== 'custom') t.value = ''; t.placeholder = md === 'product' ? (currentProductNote || 'O produto está sem frase padrão') : md === 'none' ? 'Nenhuma frase nesta aula' : 'Escreva a frase desta aula'; };
     m.querySelector('#wn-mode').addEventListener('change', () => { wnSync(); if (m.querySelector('#wn-mode').value === 'custom') m.querySelector('#wn-text').focus(); });
     wnSync();
+    const builder = blockBuilder(m.querySelector('#bb'), blocks, { readOnly: !!ro, onCount: (n) => (m.querySelector('#bcount').textContent = n || '') });
+    m.querySelectorAll('[data-add]').forEach((b) => (b.onclick = () => builder.add(b.dataset.add)));
     m.querySelector('#lf').addEventListener('submit', async (e) => {
       e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
       const wm = m.querySelector('#wn-mode').value, wt = m.querySelector('#wn-text').value.trim();
-      if (wm === 'custom' && !wt) { toast('Escreva a frase personalizada ou escolha outra opção.', { error: true }); return; }
+      if (wm === 'custom' && !wt) { tab('videos'); toast('Escreva a frase personalizada ou escolha outra opção.', { error: true }); return; }
       f.watch_note = wm === 'product' ? null : wm === 'none' ? '' : wt;
       f.published = !!f.published; f.number = Number(f.number); f.release_offset = Number(f.release_offset || 0);
       f.key_phrases = String(f.key_phrases).split('\n').map((x) => x.trim()).filter(Boolean);
-      f.verses = String(f.verses).split('\n').map((x) => x.split('|')).filter((x) => x[0].trim()).map(([ref, ...t]) => ({ ref: ref.trim(), text: t.join('|').trim() }));
-      try { await api(`/api/admin/lessons/${lid}`, { method: 'PUT', body: f }); close(); toast('Aula salva'); pageProduct(pid); } catch (er) { toast(er.message, { error: true }); }
+      f.verses = parseQuotes(f.verses);
+      f.blocks = builder.value();
+      await withLoading(e.submitter, async () => {
+        try { await api(`/api/admin/lessons/${lid}`, { method: 'PUT', body: f }); close(); toast('Aula salva'); pageProduct(pid); }
+        catch (er) { if (/Bloco/.test(er.message)) tab('conteudo'); toast(er.message, { error: true, ms: 6000 }); }
+      });
     });
     bindCovers(m, lid);
     m.querySelector('#dl')?.addEventListener('click', async () => { if (!confirm('Excluir esta aula? O progresso dos alunos nela será perdido.')) return; await api(`/api/admin/lessons/${lid}`, { method: 'DELETE' }); close(); pageProduct(pid); });
   } });
+}
+
+/** "Fonte | Texto" ou só "Texto", um por linha */
+const parseQuotes = (txt) => String(txt || '').split('\n').map((x) => x.trim()).filter(Boolean).map((line) => { const i = line.indexOf('|'); return i < 0 ? { ref: '', text: line } : { ref: line.slice(0, i).trim(), text: line.slice(i + 1).trim() }; }).filter((q) => q.text);
+
+// ---------- montador de blocos ----------
+const BI = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const BLOCK_DEFS = {
+  text: ['Texto', 'Explicação, roteiro ou resumo, com negrito, links e listas', BI('<path d="M4 6h16M4 12h16M4 18h10"/>')],
+  materials: ['Materiais e links', 'PDFs, planilhas, apresentações e links externos', BI('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>')],
+  exercise: ['Exercício', 'Perguntas que o aluno responde; as respostas ficam salvas', BI('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>')],
+  checklist: ['Tarefas', 'Lista para o aluno marcar o que já fez', BI('<path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5"/>')],
+  callout: ['Destaque', 'Dica, atenção ou aviso importante', BI('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2.2h5c.1-1 .5-1.7 1.1-2.2A6 6 0 0 0 12 3z"/>')],
+  video: ['Vídeo extra', 'Vídeo complementar no player da plataforma', BI('<rect x="3" y="5" width="14" height="14" rx="3"/><path d="M17 10l4-2.5v9L17 14"/>')],
+  button: ['Botão', 'Leva a uma página, grupo, agenda ou checkout', BI('<rect x="3" y="7" width="18" height="10" rx="5"/><path d="M10 12h4"/>')],
+  quotes: ['Citações', 'Frases, versículos ou referências em destaque', BI('<path d="M7 11h4v6H5v-4c0-3 1-5 4-6M17 11h4v6h-6v-4c0-3 1-5 4-6"/>')],
+  points: ['Pontos-chave', 'Resumo do que o aluno deve guardar', BI('<path d="M5 7h14M5 12h14M5 17h9"/><circle cx="2.5" cy="7" r=".5"/>')],
+};
+const NEW_BLOCK = {
+  text: { title: '', body: '' }, materials: { title: 'Materiais de apoio', items: [{ title: '', url: '', desc: '' }] },
+  exercise: { title: 'Exercício', questions: [''], required: false }, checklist: { title: 'Tarefas', items: [''], required: false },
+  callout: { title: '', variant: 'tip', body: '' }, video: { title: 'Vídeo complementar', url: '', duration: '' },
+  button: { title: '', body: '', label: 'Acessar', url: '' }, quotes: { title: 'Para refletir', items: [] }, points: { title: 'Para lembrar', items: [] },
+};
+function blockBuilder(root, blocks, { readOnly, onCount }) {
+  const open = new Set(blocks.length > 3 ? [] : blocks.map((b) => b.id));
+  const uid = () => Math.random().toString(36).slice(2, 12);
+  blocks.forEach((b) => (b.id ||= uid()));
+  const lines = (a) => (a || []).join('\n');
+  const summary = (b) => {
+    if (b.type === 'materials') return `${(b.items || []).filter((x) => x.url).length} item(ns)`;
+    if (b.type === 'exercise') return `${(b.questions || []).filter(Boolean).length} pergunta(s)${b.required ? ' · obrigatório' : ''}`;
+    if (b.type === 'checklist') return `${(b.items || []).filter(Boolean).length} tarefa(s)${b.required ? ' · obrigatório' : ''}`;
+    if (b.type === 'quotes' || b.type === 'points') return `${(b.items || []).length} item(ns)`;
+    if (b.type === 'text' || b.type === 'callout') return esc(String(b.body || '').slice(0, 70));
+    if (b.type === 'video' || b.type === 'button') return esc(b.url || 'sem link');
+    return '';
+  };
+  const body = (b) => {
+    const T = (f, label, ph = '', o = {}) => `<div class="field ${o.full ? 'full' : ''}"><label>${label}</label><input class="input" data-f="${f}" value="${esc(b[f] ?? '')}" placeholder="${esc(ph)}" maxlength="${o.max || 200}"></div>`;
+    const A = (f, label, ph = '', rows = 4, hint = '') => `<div class="field full"><label>${label}</label><textarea class="input" data-f="${f}" rows="${rows}" placeholder="${esc(ph)}">${esc(b[f] ?? '')}</textarea>${hint ? `<span class="hint">${hint}</span>` : ''}</div>`;
+    const L = (f, label, ph, hint = '') => `<div class="field full"><label>${label}</label><textarea class="input" data-list="${f}" rows="4" placeholder="${esc(ph)}">${esc(lines(b[f]))}</textarea>${hint ? `<span class="hint">${hint}</span>` : ''}</div>`;
+    const REQ = `<label class="switch full"><input type="checkbox" data-f="required" ${b.required ? 'checked' : ''}> Obrigatório para concluir a aula</label>`;
+    switch (b.type) {
+      case 'text': return T('title', 'Título (opcional)', 'Ex.: Resumo da aula', { full: true }) + A('body', 'Texto', 'Escreva aqui…', 7, 'Formatação: **negrito**, *itálico*, [texto do link](https://…), listas começando com "- " ou "1.". Deixe uma linha em branco entre parágrafos.');
+      case 'callout': return `<div class="field"><label>Tipo</label><select class="input" data-f="variant">${[['tip', 'Dica'], ['info', 'Para saber'], ['warning', 'Atenção'], ['important', 'Importante']].map(([v, n]) => `<option value="${v}" ${b.variant === v ? 'selected' : ''}>${n}</option>`).join('')}</select></div>` + T('title', 'Título (opcional)', 'Vazio = nome do tipo') + A('body', 'Mensagem', '', 3);
+      case 'materials': return T('title', 'Título do bloco', 'Materiais de apoio', { full: true }) + `<div class="full mat-rows">${(b.items || []).map((it, i) => `<div class="mat-row" data-mi="${i}"><input class="input" data-m="title" value="${esc(it.title)}" placeholder="Nome do material"><input class="input" data-m="url" value="${esc(it.url)}" placeholder="https://… ou envie um arquivo"><input class="input" data-m="desc" value="${esc(it.desc)}" placeholder="Descrição curta (opcional)"><div class="mat-row-a">${readOnly ? '' : `<label class="btn btn-soft btn-sm">Enviar arquivo<input type="file" hidden data-up="${i}"></label><button type="button" class="btn btn-ghost btn-sm" data-mdel="${i}" title="Remover">×</button>`}</div></div>`).join('')}${readOnly ? '' : '<button type="button" class="btn btn-soft btn-sm" data-madd>+ Adicionar material</button>'}<span class="hint">Arquivos: PDF, Word, Excel, PowerPoint, ZIP, imagem, MP3/M4A, CSV ou TXT, até 30 MB.</span></div>`;
+      case 'exercise': return T('title', 'Título', 'Exercício', { full: true }) + L('questions', 'Perguntas (uma por linha)', 'Qual é o seu maior desafio hoje?\nO que você vai fazer de diferente esta semana?') + REQ;
+      case 'checklist': return T('title', 'Título', 'Tarefas', { full: true }) + L('items', 'Tarefas (uma por linha)', 'Baixar a planilha\nPreencher os gastos da semana') + REQ;
+      case 'video': return T('title', 'Título', 'Vídeo complementar') + T('duration', 'Duração', 'Ex.: 8 min', { max: 20 }) + T('url', 'Link do vídeo', 'YouTube, Vimeo, Panda Video…', { full: true, max: 1000 });
+      case 'button': return T('title', 'Título (opcional)', 'Ex.: Entre no grupo') + T('label', 'Texto do botão', 'Acessar', { max: 60 }) + T('url', 'Link', 'https://…', { full: true, max: 1000 }) + T('body', 'Texto de apoio (opcional)', '', { full: true, max: 600 });
+      case 'quotes': return T('title', 'Título da seção', 'Para refletir', { full: true }) + `<div class="field full"><label>Citações (uma por linha)</label><textarea class="input" data-quotes rows="4" placeholder="Fonte | Texto, ou só o texto">${esc((b.items || []).map((q) => (q.ref ? `${q.ref} | ${q.text}` : q.text)).join('\n'))}</textarea></div>`;
+      case 'points': return T('title', 'Título da seção', 'Para lembrar', { full: true }) + L('items', 'Pontos (um por linha)', '');
+      default: return '';
+    }
+  };
+  const render = () => {
+    onCount(blocks.length);
+    root.innerHTML = blocks.length ? blocks.map((b, i) => { const [n, , ic] = BLOCK_DEFS[b.type]; const isOpen = open.has(b.id); return `<div class="bb-card ${isOpen ? 'open' : ''}" data-bi="${i}">
+      <div class="bb-card-h"><button type="button" class="bb-toggle" data-tg="${i}"><span class="bb-ic">${ic}</span><span class="bb-name"><b>${esc(b.title || n)}</b><small>${n}${summary(b) ? ` · ${summary(b)}` : ''}</small></span><span class="bb-chev">${isOpen ? '−' : '+'}</span></button>
+      ${readOnly ? '' : `<div class="bb-acts"><button type="button" data-up-b="${i}" ${i ? '' : 'disabled'} title="Subir">↑</button><button type="button" data-dn-b="${i}" ${i < blocks.length - 1 ? '' : 'disabled'} title="Descer">↓</button><button type="button" data-dup="${i}" title="Duplicar">⧉</button><button type="button" data-del-b="${i}" title="Excluir" class="danger">×</button></div>`}</div>
+      ${isOpen ? `<div class="bb-card-b form-grid">${body(b)}</div>` : ''}</div>`; }).join('') : '<div class="bb-empty">Nenhum bloco ainda. Escolha um tipo abaixo para começar.</div>';
+    bind();
+  };
+  const bind = () => {
+    root.querySelectorAll('[data-tg]').forEach((x) => (x.onclick = () => { const b = blocks[+x.dataset.tg]; open.has(b.id) ? open.delete(b.id) : open.add(b.id); render(); }));
+    root.querySelectorAll('[data-up-b]').forEach((x) => (x.onclick = () => { const i = +x.dataset.upB; [blocks[i - 1], blocks[i]] = [blocks[i], blocks[i - 1]]; render(); }));
+    root.querySelectorAll('[data-dn-b]').forEach((x) => (x.onclick = () => { const i = +x.dataset.dnB; [blocks[i + 1], blocks[i]] = [blocks[i], blocks[i + 1]]; render(); }));
+    root.querySelectorAll('[data-dup]').forEach((x) => (x.onclick = () => { const i = +x.dataset.dup; const c = { ...JSON.parse(JSON.stringify(blocks[i])), id: uid() }; blocks.splice(i + 1, 0, c); open.add(c.id); render(); }));
+    root.querySelectorAll('[data-del-b]').forEach((x) => (x.onclick = () => { const i = +x.dataset.delB; if (!confirm(`Excluir o bloco "${blocks[i].title || BLOCK_DEFS[blocks[i].type][0]}"?`)) return; blocks.splice(i, 1); render(); }));
+    root.querySelectorAll('.bb-card').forEach((card) => {
+      const b = blocks[+card.dataset.bi];
+      card.querySelectorAll('[data-f]').forEach((inp) => inp.addEventListener(inp.type === 'checkbox' || inp.tagName === 'SELECT' ? 'change' : 'input', () => { b[inp.dataset.f] = inp.type === 'checkbox' ? inp.checked : inp.value; }));
+      card.querySelectorAll('[data-list]').forEach((inp) => inp.addEventListener('input', () => { b[inp.dataset.list] = inp.value.split('\n').map((x) => x.trim()).filter(Boolean); }));
+      card.querySelectorAll('[data-quotes]').forEach((inp) => inp.addEventListener('input', () => { b.items = parseQuotes(inp.value); }));
+      card.querySelectorAll('[data-mi]').forEach((row) => row.querySelectorAll('[data-m]').forEach((inp) => inp.addEventListener('input', () => { b.items[+row.dataset.mi][inp.dataset.m] = inp.value; })));
+      card.querySelector('[data-madd]')?.addEventListener('click', () => { b.items.push({ title: '', url: '', desc: '' }); render(); });
+      card.querySelectorAll('[data-mdel]').forEach((x) => (x.onclick = () => { b.items.splice(+x.dataset.mdel, 1); render(); }));
+      card.querySelectorAll('[data-up]').forEach((inp) => inp.addEventListener('change', async () => {
+        const file = inp.files[0]; if (!file) return;
+        if (file.size > 30 * 1024 * 1024) return toast('Arquivo muito grande (máximo 30 MB).', { error: true });
+        const lbl = inp.closest('label'); const old = lbl.firstChild.textContent; lbl.firstChild.textContent = 'Enviando…'; lbl.classList.add('is-loading');
+        try {
+          const r = await api('/api/admin/files', { method: 'POST', body: { name: file.name, data: await readDataUrl(file) } });
+          const it = b.items[+inp.dataset.up]; it.url = r.url; if (!it.title) it.title = file.name.replace(/\.[^.]+$/, '');
+          toast('Arquivo enviado'); render();
+        } catch (er) { toast(er.message, { error: true }); lbl.firstChild.textContent = old; lbl.classList.remove('is-loading'); }
+      }));
+    });
+  };
+  render();
+  return {
+    add: (type) => { const b = { id: uid(), type, ...JSON.parse(JSON.stringify(NEW_BLOCK[type])) }; blocks.push(b); open.add(b.id); render(); setTimeout(() => root.querySelector(`[data-bi="${blocks.length - 1}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 30); },
+    value: () => blocks.map((b) => ({ ...b, items: b.type === 'materials' ? (b.items || []).filter((x) => x.url || x.title) : b.items })),
+  };
 }
 
 // ---------- integrações ----------

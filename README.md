@@ -98,6 +98,10 @@ Copie `data/backups` para fora da VPS (S3, Backblaze, Google Drive via rclone). 
 - **Líquido:** usa o valor líquido real quando a Greenn envia no webhook; senão estima pela taxa de Configurações › Financeiro (padrão 4,99% + R$ 1,00).
 - **Marketing:** gastos lançados à mão (dia ou período) ou importados do CSV do Gerenciador de Anúncios (Detalhamento › Por tempo › Dia). Reimportar o mesmo período atualiza, sem duplicar. Calcula ROAS, ROI, CAC, lucro e margem. A tabela `ad_spend` já tem a origem `meta`, pronta para a integração direta com a API da Meta.
 
+## 2d. Blocos da aula
+
+Em **Editar aula › Conteúdo e blocos** o produtor monta a aula com: Texto (negrito, itálico, links e listas), Materiais e links (com upload de PDF, Word, Excel, PowerPoint, ZIP, imagem, MP3/M4A, CSV ou TXT até 30 MB), Exercício (respostas salvas automaticamente), Tarefas (checklist), Destaque (dica, atenção, importante), Vídeo extra, Botão, Citações e Pontos-chave. Exercícios e tarefas podem ser **obrigatórios para concluir**. As respostas aparecem na ficha do aluno. Os títulos das seções fixas de citações e pontos-chave são definidos por produto.
+
 ## 3. Como a liberação funciona
 
 - Pagamento aprovado na Greenn → webhook → cadastro do aluno + inscrição → e-mail com link para criar a senha (vale 72h; depois o aluno usa "Primeiro acesso / esqueci a senha").

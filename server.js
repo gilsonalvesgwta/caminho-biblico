@@ -68,7 +68,7 @@ const server = http.createServer(async (req, res) => {
           const host = req.headers['x-forwarded-host'] || req.headers.host;
           if (origin && new URL(origin).host !== host) throw new HttpError(403, 'Origem não permitida');
         }
-        req.body = parseBody(await readBody(req, /\/(cover|image|logo|import)$/.test(pathname) ? 8 * 1024 * 1024 : undefined), req.headers['content-type']);
+        req.body = parseBody(await readBody(req, pathname === '/api/admin/files' ? 42 * 1024 * 1024 : /\/(cover|image|logo|import)$/.test(pathname) ? 8 * 1024 * 1024 : undefined), req.headers['content-type']);
       } else req.body = {};
       req.params = m.params;
       let out;

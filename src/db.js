@@ -324,6 +324,21 @@ const migrations = [
   ALTER TABLE lessons ADD COLUMN watch_note TEXT;
   UPDATE products SET watch_note = 'Assista com atenção. Se puder, tenha uma Bíblia por perto.' WHERE kind <> 'bonus';
   `,
+  // 7: blocos da aula (materiais, exercícios, tarefas…), respostas dos alunos e títulos das seções por produto
+  `
+  ALTER TABLE lessons ADD COLUMN blocks TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE products ADD COLUMN quotes_title TEXT;
+  ALTER TABLE products ADD COLUMN points_title TEXT;
+  UPDATE products SET quotes_title = 'A Palavra de hoje', points_title = 'Para guardar no coração' WHERE kind <> 'bonus';
+  CREATE TABLE block_answers (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+    block_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, lesson_id, block_id)
+  );
+  `,
 ];
 
 export function migrate() {
