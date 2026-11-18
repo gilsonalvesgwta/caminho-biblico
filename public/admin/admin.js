@@ -1,4 +1,5 @@
 import { api, esc, toast, modal, withLoading, fmtDate, fmtDateTime, relTime, $, $$ } from '/shared/ui.js';
+import { productCardHtml } from '/shared/pcard.js';
 import { brl, pct, money, setCurrency, NOTAS_RETRATO, ARMAS, FRUTOS } from '/shared/calc.js';
 import { youtubeId, youtubeThumb } from '/shared/player.js';
 import { themeVars, varsToStyle, normalizeTheme, loadFont, contrast, FONTS } from '/shared/theme.js';
@@ -558,10 +559,10 @@ const PRESETS = [
 
 /** Cartão do produto como o aluno vê na vitrine (usado na lista e na prévia) */
 function previewCard(p, theme) {
-  const vars = varsToStyle(themeVars(theme));
-  loadFont(normalizeTheme(theme).font);
-  return `<div class="pv-card" style="${vars}"><div class="pv-cover">${p.cover_url ? `<img src="${esc(p.cover_url)}" alt="">` : `<div class="pv-art">${p.logo_url ? `<img class="pv-logo" src="${esc(p.logo_url)}" alt="">` : `<span class="pv-mono">${esc(((p.short_name || p.name || 'P').trim()[0]) || 'P')}</span>`}</div>`}<span class="pv-kind">${esc(p.badge || KIND[p.kind] || 'Desafio')}</span></div>
-    <div class="pv-body"><b>${esc(p.name || 'Nome do produto')}</b>${p.tagline ? `<p>${esc(p.tagline)}</p>` : ''}<div class="pv-bar"><i></i></div><div class="pv-foot"><span>2 de 7</span><span class="pv-cta">Continuar →</span></div></div></div>`;
+  const unit = p.unit_label || 'Dia';
+  const bonus = p.kind === 'bonus';
+  return `<div class="pv-wrap">${productCardHtml({ theme, cover: p.cover_url, logo: p.logo_url, name: p.name || 'Nome do produto', shortName: p.short_name, mentor: p.mentor, kindLabel: p.badge || KIND[p.kind] || 'Desafio',
+    tagline: p.tagline, progress: bonus ? { label: `${(p.materials || []).length || 1} material(is)`, pct: null } : { label: `${esc(unit)} 2 de 7`, pct: 29 }, footNote: p.access_days ? `Acesso por ${p.access_days} dias` : 'Acesso vitalício', cta: bonus ? 'Abrir' : 'Continuar' })}</div>`;
 }
 function previewHero(p, theme) {
   const vars = varsToStyle(themeVars(theme));

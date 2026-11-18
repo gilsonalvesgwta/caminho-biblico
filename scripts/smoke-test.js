@@ -275,7 +275,7 @@ try {
   assert.equal((await call('x', 'GET', '/api/app/brand')).json.brand_logo, '');
   step('logo da plataforma: enviar, aplicar, bloquear SVG perigoso e remover');
 
-  for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/shared/player.js', '/shared/player.css', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
+  for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/shared/player.js', '/shared/player.css', '/shared/pcard.js', '/shared/pcard.css', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
   step('arquivos do app e do painel');
   console.log('\nTodos os testes passaram.');
   process.exitCode = 0;

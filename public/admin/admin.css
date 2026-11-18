@@ -150,8 +150,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .pv-h1 { font-family: var(--font-display); font-size: 26px; margin-top: 4px; }
 .pv-h1 em { color: var(--gold-300); }
 .pv-btn { display: inline-block; margin-top: 12px; padding: 8px 14px; border-radius: 999px; font-weight: 800; font-size: 12.5px; background: var(--gold-500); color: var(--on-gold); }
-.visual-grid { display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; }
-.pv-col { position: sticky; top: 0; display: flex; flex-direction: column; gap: 8px; }
+.visual-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
+.pv-col { position: sticky; top: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 @media (max-width: 860px) { .visual-grid { grid-template-columns: 1fr; } .pv-col { position: static; } }
 .presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .preset { display: flex; align-items: center; gap: 4px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line-strong); background: #fff; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; text-align: left; }
@@ -165,7 +165,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .img-box.cover { aspect-ratio: 16 / 9; }
 .img-box.logo { aspect-ratio: 16 / 9; background: repeating-conic-gradient(#f1eee6 0% 25%, #fff 0% 50%) 50% / 18px 18px; }
 .img-box img { width: 100%; height: 100%; object-fit: cover; }
-.img-box.logo img { object-fit: contain; padding: 14px; }
+.img-box.logo img { width: 72%; height: 72%; object-fit: contain; padding: 0; }
 .img-box.is-loading { opacity: .5; }
 .img-field .cover-actions { margin-top: 8px; }
 .acc-list { display: flex; flex-direction: column; gap: 4px; }
@@ -300,3 +300,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 [data-lsec][hidden] { display: none !important; }
 [data-sec][hidden] { display: none !important; }
+.pv-wrap .pcard2 { width: 100%; }
+.prod-pv .pcard2 { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink-900) 8%, transparent), 0 12px 28px -18px color-mix(in srgb, var(--ink-900) 45%, transparent); }
+.presets { grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)) !important; }

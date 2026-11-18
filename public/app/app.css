@@ -283,7 +283,6 @@ main.page.wide { max-width: 980px; }
 .resume-txt span { font-size: 13.5px; color: var(--ink-300); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .resume > svg { color: var(--gold-300); flex: none; }
 
-.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 18px; }
 .pcard { display: flex; flex-direction: column; background: #fff; border: 1px solid var(--line); border-radius: 24px; overflow: hidden; color: var(--text); text-decoration: none !important; transition: transform .25s var(--ease), box-shadow .25s, border-color .25s; position: relative; }
 .pcard:hover { transform: translateY(-4px); box-shadow: 0 26px 50px -24px color-mix(in srgb, var(--ink-900) 55%, transparent); border-color: color-mix(in srgb, var(--gold-500) 45%, var(--line)); }
 .pcard-cover { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--ink-900); }
@@ -391,3 +390,8 @@ main.page.wide { max-width: 980px; }
 @media (max-width: 640px) { .blk { padding: 18px; border-radius: 18px; } .blk-h { padding-right: 0; } .blk-req, .blk-meta { position: static; display: inline-block; margin: -6px 0 12px; } .mat-go span, .mat-go { font-size: 12px; } }
 
 .verse p { padding-right: 34px; }
+
+/* Capa do produto no topo da jornada: imagem nítida à direita, fundindo com a cor do produto */
+.hero-cover { left: auto; width: 64%; opacity: 1; mix-blend-mode: normal; background-position: center; -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.55) 30%, #000 70%); mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.55) 30%, #000 70%); }
+.hero-cover::after { background: linear-gradient(90deg, var(--ink-900) 0%, color-mix(in srgb, var(--ink-900) 30%, transparent) 45%, transparent 100%), linear-gradient(0deg, color-mix(in srgb, var(--ink-900) 55%, transparent), transparent 55%); }
+@media (max-width: 640px) { .hero-cover { width: 100%; opacity: .38; -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 85%); mask-image: linear-gradient(180deg, #000 0%, transparent 85%); } }

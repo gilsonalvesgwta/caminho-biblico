@@ -3,6 +3,7 @@ import { compute, brl, NOTAS_RETRATO, setCurrency } from '/shared/calc.js';
 import { mountActivity, casaHtml, planoHtml, fmtLive, liveDateHtml } from '/activities.js';
 import { mountPlayer, youtubeId } from '/shared/player.js';
 import { applyTheme, resetTheme, themeVars, varsToStyle, loadFont, normalizeTheme } from '/shared/theme.js';
+import { productCardHtml } from '/shared/pcard.js';
 
 const app = document.getElementById('app');
 let ME = null;
@@ -269,38 +270,26 @@ function pageHome(p) {
 }
 
 // ---------- vitrine (aluno com mais de um produto) ----------
+// eslint-disable-next-line no-unused-vars
 const initials = (p) => { const w = (p.shortName || p.name || '').split(/\s+/).filter((x) => x.length > 2 || /^[A-ZÁ-Ú]/.test(x)).filter((x) => !/^(de|da|do|das|dos|e|o|a|os|as|em)$/i.test(x)); return ((w[0]?.[0] || '•') + (w[1]?.[0] || '')).toUpperCase(); };
 function productCard(p) {
   const pr = progressOf(p);
   const u = U(p);
-  const vars = varsToStyle(themeVars(p.theme));
-  loadFont(normalizeTheme(p.theme).font);
   let cta, status = '';
-  if (p.kind === 'bonus') { cta = 'Ver materiais'; status = `${p.materials.length} ${p.materials.length === 1 ? 'material' : 'materiais'}`; }
-  else if (pr.finished) { cta = 'Acessar'; status = `${u.concl[0].toUpperCase() + u.concl.slice(1)} · ${pr.total} de ${pr.total}`; }
-  else if (pr.current) { cta = pr.started ? 'Continuar' : 'Começar'; status = `${u.label} ${pr.current.number} de ${pr.total}`; }
-  else if (pr.nextLocked?.availableAt) { cta = 'Ver jornada'; status = `${u.label} ${pr.nextLocked.number} em <span data-cd="${pr.nextLocked.availableAt}">${countdown(pr.nextLocked.availableAt)}</span>`; }
+  if (p.kind === 'bonus') { cta = 'Abrir'; status = `${p.materials.length} ${p.materials.length === 1 ? 'material' : 'materiais'}`; }
+  else if (pr.finished) { cta = 'Rever'; status = `${u.concl[0].toUpperCase() + u.concl.slice(1)} · ${pr.total} de ${pr.total}`; }
+  else if (pr.current) { cta = pr.started ? 'Continuar' : 'Começar'; status = `${esc(u.label)} ${pr.current.number} de ${pr.total}`; }
+  else if (pr.nextLocked?.availableAt) { cta = 'Ver jornada'; status = `${esc(u.label)} ${pr.nextLocked.number} em <span data-cd="${pr.nextLocked.availableAt}">${countdown(pr.nextLocked.availableAt)}</span>`; }
   else { cta = 'Acessar'; status = pr.total ? `${pr.done} de ${pr.total}` : 'Em breve'; }
-  const href = `/p/${p.slug}`;
   const pct = p.kind === 'bonus' || !pr.total ? null : Math.round((pr.done / pr.total) * 100);
-  return `<a class="pcard" href="${href}" data-link style="${vars}">
-    <div class="pcard-cover">${p.cover ? `<img src="${esc(p.cover)}" alt="" loading="lazy">` : `<div class="pcard-art">${p.logo ? `<img class="pcard-logo" src="${esc(p.logo)}" alt="">` : `<span class="pcard-mono">${esc(initials(p))}</span>`}</div>`}
-      <span class="pcard-kind">${esc(p.badge || KIND_LABEL[p.kind])}</span>${pr.finished ? `<span class="pcard-done">${ICON.check}</span>` : ''}</div>
-    <div class="pcard-body">
-      <h3>${esc(p.name)}</h3>${p.tagline ? `<p>${esc(p.tagline)}</p>` : ''}
-      ${pct !== null ? `<div class="pcard-progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>` : ''}
-      <div class="pcard-foot"><span class="pcard-status">${status}</span><span class="pcard-cta">${esc(cta)} ${ICON.arrow}</span></div>
-      ${p.expiresAt ? `<div class="pcard-exp">Acesso até ${fmtDate(p.expiresAt)}</div>` : ''}
-    </div></a>`;
+  return productCardHtml({ href: `/p/${p.slug}`, theme: p.theme, cover: p.cover, logo: p.logo, name: p.name, shortName: p.shortName, mentor: p.mentor, kindLabel: p.badge || KIND_LABEL[p.kind],
+    tagline: p.tagline, progress: { label: status, pct }, done: pr.finished && p.kind !== 'bonus', footNote: p.expiresAt ? `Acesso até ${fmtDate(p.expiresAt)}` : 'Acesso vitalício', cta });
 }
 function storeCard(p) {
-  const vars = varsToStyle(themeVars(p.theme));
-  loadFont(normalizeTheme(p.theme).font);
-  const inner = `<div class="pcard-cover">${p.cover ? `<img src="${esc(p.cover)}" alt="" loading="lazy">` : `<div class="pcard-art">${p.logo ? `<img class="pcard-logo" src="${esc(p.logo)}" alt="">` : `<span class="pcard-mono">${esc(initials(p))}</span>`}</div>`}
-      <span class="pcard-kind">${esc(p.badge || KIND_LABEL[p.kind])}</span><span class="pcard-lock">${ICON.lock.replace(/28/g, '16')}</span></div>
-    <div class="pcard-body"><h3>${esc(p.name)}</h3>${p.tagline ? `<p>${esc(p.tagline)}</p>` : ''}
-      <div class="pcard-foot"><span class="pcard-status">${p.lessonsCount ? `${p.lessonsCount} ${esc(U(p).label.toLowerCase())}${p.lessonsCount > 1 ? 's' : ''}` : ''}</span><span class="pcard-cta">${p.salesUrl ? 'Quero conhecer' : 'Em breve'} ${p.salesUrl ? ICON.arrow : ''}</span></div></div>`;
-  return p.salesUrl ? `<a class="pcard is-store" href="${esc(p.salesUrl)}" target="_blank" rel="noopener" style="${vars}">${inner}</a>` : `<div class="pcard is-store" style="${vars}">${inner}</div>`;
+  const n = p.lessonsCount || 0;
+  const unit = U(p).label.toLowerCase();
+  return productCardHtml({ href: p.salesUrl || '', external: true, theme: p.theme, cover: p.cover, logo: p.logo, name: p.name, shortName: p.shortName, mentor: p.mentor, kindLabel: p.badge || KIND_LABEL[p.kind],
+    tagline: p.tagline, progress: n ? { label: `${n} ${esc(unit)}${n > 1 ? (/l$/.test(unit) ? 'is' : /ão$/.test(unit) ? 'ões' : 's') : ''}`, pct: null } : null, store: true, cta: p.salesUrl ? 'Quero conhecer' : 'Em breve', ctaArrow: !!p.salesUrl });
 }
 function storeSection(store) {
   return `<div class="section-h"><h2>Conheça também</h2></div><div class="pgrid">${store.map(storeCard).join('')}</div>`;
