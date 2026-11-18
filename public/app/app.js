@@ -45,12 +45,9 @@ async function loadBrand() {
 }
 /** Favicon e ícone do celular seguem o ícone da plataforma, quando enviado */
 function applyFavicon() {
-  const src = BRAND?.brand_logo;
-  if (!src) return;
-  for (const rel of ['icon', 'apple-touch-icon']) {
-    const l = document.querySelector(`link[rel="${rel}"]`);
-    if (l && l.getAttribute('href') !== src) { l.setAttribute('href', src); l.removeAttribute('type'); }
-  }
+  const set = (rel, src) => { const l = document.querySelector(`link[rel="${rel}"]`); if (src && l && l.getAttribute('href') !== src) { l.setAttribute('href', src); l.removeAttribute('type'); } };
+  set('icon', BRAND?.brand_logo);
+  set('apple-touch-icon', BRAND?.brand_app_icon || BRAND?.brand_logo);
 }
 /** Compara textos ignorando maiúsculas e acentos (evita "Área de membros · Área de membros") */
 const same = (a, b) => { const f = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase(); return f(a) === f(b); };

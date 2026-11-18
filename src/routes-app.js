@@ -9,7 +9,7 @@ import { lessonBlocks, loadBlockAnswers, saveBlockAnswer, missingRequired } from
 
 const publicSettings = (s = getSettings()) => ({
   brand_name: s.brand_name, brand_short: s.brand_short, mentor_name: s.mentor_name, brand_tagline: s.brand_tagline,
-  brand_logo: s.brand_logo, brand_logo_wide: s.brand_logo_wide, brand_logo_wide_dark: s.brand_logo_wide_dark,
+  brand_logo: s.brand_logo, brand_logo_wide: s.brand_logo_wide, brand_logo_wide_dark: s.brand_logo_wide_dark, brand_app_icon: s.brand_app_icon,
   support_email: s.support_email, support_whatsapp: s.support_whatsapp, guide_url: s.guide_url, rules: rulesFromSettings(s),
 });
 
@@ -31,7 +31,7 @@ function loadEnrollment(userId, slug) {
 
 export function registerAppRoutes(r) {
   // Marca da plataforma (usada na tela de login, antes de entrar)
-  r.get('/api/app/brand', () => { const s = getSettings(); return { brand_name: s.brand_name, brand_tagline: s.brand_tagline, brand_logo: s.brand_logo, brand_logo_wide: s.brand_logo_wide, brand_logo_wide_dark: s.brand_logo_wide_dark }; });
+  r.get('/api/app/brand', () => { const s = getSettings(); return { brand_name: s.brand_name, brand_tagline: s.brand_tagline, brand_logo: s.brand_logo, brand_logo_wide: s.brand_logo_wide, brand_logo_wide_dark: s.brand_logo_wide_dark, brand_app_icon: s.brand_app_icon }; });
   r.post('/api/app/login', async (req, res) => {
     rateLimit(`login:${req.ip}`, 15, 15 * 60e3);
     const email = normEmail(req.body.email);

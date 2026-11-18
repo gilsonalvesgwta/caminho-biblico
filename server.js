@@ -77,6 +77,15 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Método não permitido');
+    // manifesto do app (instalar na tela inicial) com o nome e o ícone da plataforma
+    if (pathname === '/manifest.webmanifest') {
+      const st = getSettings();
+      const icons = st.brand_app_icon
+        ? [{ src: st.brand_app_icon, sizes: '512x512', type: 'image/png' }, { src: st.brand_app_icon, sizes: '512x512', type: 'image/png', purpose: 'maskable' }]
+        : [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }, { src: '/icons/icon-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }];
+      return send(res, 200, JSON.stringify({ name: st.brand_name, short_name: (st.brand_name.length <= 14 || !st.brand_short ? st.brand_name : st.brand_short).slice(0, 24), description: st.brand_tagline || 'Área de membros',
+        start_url: '/', scope: '/', display: 'standalone', orientation: 'portrait', background_color: '#0B1A2A', theme_color: '#0B1A2A', lang: 'pt-BR', icons }), { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-cache' });
+    }
     if (pathname.startsWith('/shared/') && serveStatic(req, res, PUB, pathname)) return;
     if (pathname.startsWith('/media/')) {
       if (serveStatic(req, res, path.join(config.dataDir, 'uploads'), pathname.slice('/media'.length), { immutable: true })) return;

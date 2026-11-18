@@ -458,7 +458,7 @@ export function registerAdminRoutes(r) {
   });
 
   // Logo da plataforma: ícone quadrado e versões horizontais (fundo claro e fundo escuro)
-  const BRAND_TARGETS = { icon: 'brand_logo', wide: 'brand_logo_wide', wide_dark: 'brand_logo_wide_dark' };
+  const BRAND_TARGETS = { icon: 'brand_logo', wide: 'brand_logo_wide', wide_dark: 'brand_logo_wide_dark', app_icon: 'brand_app_icon' };
   r.post('/api/admin/settings/logo', (req) => {
     requireAdmin(req, 'admin');
     const key = BRAND_TARGETS[req.body.target]; if (!key) fail(400, 'Tipo de logo inválido.');
@@ -563,7 +563,7 @@ export function registerAdminRoutes(r) {
   r.put('/api/admin/settings', (req) => {
     requireAdmin(req, 'admin');
     const body = { ...(req.body || {}) };
-    for (const k of ['brand_logo', 'brand_logo_wide', 'brand_logo_wide_dark']) delete body[k]; // só por upload
+    for (const k of ['brand_logo', 'brand_logo_wide', 'brand_logo_wide_dark', 'brand_app_icon']) delete body[k]; // só por upload
     for (const k of ['fee_percent', 'fee_fixed']) {
       if (k in body) { const v = Number(String(body[k]).replace(',', '.')); if (!Number.isFinite(v) || v < 0 || v > (k === 'fee_percent' ? 50 : 1000)) fail(400, 'Taxa inválida.'); body[k] = String(v); }
     }

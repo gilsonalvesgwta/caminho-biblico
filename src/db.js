@@ -386,6 +386,7 @@ export const SETTING_DEFAULTS = {
   brand_logo: '', // ícone quadrado (substitui o símbolo)
   brand_logo_wide: '', // logo horizontal para fundo claro (topo do app)
   brand_logo_wide_dark: '', // logo horizontal para fundo escuro (login e painel)
+  brand_app_icon: '', // ícone do celular (gerado a partir do ícone, com fundo da marca)
   fee_percent: '4.99', // taxa da plataforma de pagamento (%), usada quando a Greenn não envia o líquido
   fee_fixed: '1.00', // taxa fixa por venda (R$)
 };

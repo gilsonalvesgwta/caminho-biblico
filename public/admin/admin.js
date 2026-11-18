@@ -1042,14 +1042,27 @@ function bindLogoFields(root, s) {
         ib.classList.add('is-loading');
         const { data } = await prepareImage(file, { maxWidth: t === 'icon' ? 512 : 1200, keepRatio: true, logo: true });
         const r = await api('/api/admin/settings/logo', { method: 'POST', body: { target: t, data } });
-        s[key] = r.url; refreshBrand(t, r.url); redraw(); toast('Logo atualizada. Os alunos veem a nova logo no próximo acesso.', { ms: 4000 });
+        s[key] = r.url; refreshBrand(t, r.url);
+        if (t === 'icon') { try { const app = await makeAppIcon(data); const r2 = await api('/api/admin/settings/logo', { method: 'POST', body: { target: 'app_icon', data: app } }); s.brand_app_icon = r2.url; } catch { /* ícone do celular é opcional */ } }
+        redraw(); toast('Logo atualizada. Os alunos veem a nova logo no próximo acesso.', { ms: 4000 });
       } catch (er) { ib.classList.remove('is-loading'); toast(er.message, { error: true }); }
     });
     box.querySelector('[data-logo-del]')?.addEventListener('click', async () => {
       await api(`/api/admin/settings/logo?target=${t}`, { method: 'DELETE' });
+      if (t === 'icon') await api('/api/admin/settings/logo?target=app_icon', { method: 'DELETE' }).catch(() => {});
       s[key] = ''; refreshBrand(t, ''); redraw(); toast('Logo removida');
     });
   });
+}
+/** Ícone do celular: o ícone da marca centralizado sobre fundo azul profundo com luz dourada suave (o iPhone pinta de preto o que é transparente) */
+async function makeAppIcon(dataUrl) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = dataUrl; });
+  const N = 512, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d');
+  const bg = x.createLinearGradient(0, 0, N, N); bg.addColorStop(0, '#13263A'); bg.addColorStop(1, '#07121D'); x.fillStyle = bg; x.fillRect(0, 0, N, N);
+  const glow = x.createRadialGradient(N / 2, N / 2, 0, N / 2, N / 2, N * 0.48); glow.addColorStop(0, 'rgba(230,205,151,.18)'); glow.addColorStop(1, 'rgba(230,205,151,0)'); x.fillStyle = glow; x.fillRect(0, 0, N, N);
+  const w = img.naturalWidth || 512, h = img.naturalHeight || 512, k = Math.min((N * 0.6) / w, (N * 0.6) / h);
+  x.imageSmoothingQuality = 'high'; x.drawImage(img, (N - w * k) / 2, (N - h * k) / 2, w * k, h * k);
+  return c.toDataURL('image/png');
 }
 /** Atualiza a marca do menu lateral na hora, sem recarregar */
 function refreshBrand(t, url) {
