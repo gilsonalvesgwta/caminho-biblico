@@ -83,6 +83,14 @@ Copie `data/backups` para fora da VPS (S3, Backblaze, Google Drive via rclone). 
 
 ---
 
+## 2b. Vários produtos (multiproduto)
+
+- **Painel › Produtos e conteúdo › + Novo produto.** Cada produto tem nome, tipo (Desafio, Curso ou Material), rótulo das aulas (Dia, Aula, Módulo…), forma de liberação, vínculo com a Greenn e **identidade visual própria**: 3 cores (ou uma paleta pronta), fonte dos títulos, logo (512 × 512, PNG ou SVG transparente) e capa da vitrine (1600 × 900).
+- **Aluno com um produto** vê direto a jornada, como sempre. **Aluno com dois ou mais** entra numa **vitrine** com todos os seus conteúdos e o atalho "Continue de onde parou". Dentro de cada produto, o app assume as cores e a fonte dele.
+- **Vitrine e vendas:** marque "Mostrar na vitrine para quem ainda não tem" e informe o link da página de vendas para o produto aparecer em "Conheça também".
+- **Liberação manual:** na ficha do aluno, **+ Liberar produto** permite escolher a validade (padrão do produto, vitalício ou até uma data) e avisar o aluno por e-mail. Também dá para reativar, alterar a validade ou remover.
+- Quem já é aluno e compra outro produto pela Greenn recebe o aviso "Novo acesso liberado" com o link direto do produto, sem precisar criar senha de novo.
+
 ## 3. Como a liberação funciona
 
 - Pagamento aprovado na Greenn → webhook → cadastro do aluno + inscrição → e-mail com link para criar a senha (vale 72h; depois o aluno usa "Primeiro acesso / esqueci a senha").

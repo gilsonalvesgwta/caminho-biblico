@@ -3,7 +3,7 @@ import { fail, rateLimit } from './http.js';
 import { createSession, destroySession, requireUser, verifyPassword, hashPassword, validatePassword, consumeUserToken, markTokenUsed, issueUserToken } from './auth.js';
 import { sendEmail, resetEmail } from './mailer.js';
 import { config } from './config.js';
-import { normEmail, jparse, lessonStates, refreshSummary, nextLive, rulesFromSettings, loadAnswers } from './services.js';
+import { normEmail, jparse, lessonStates, refreshSummary, nextLive, rulesFromSettings, loadAnswers, productPublic } from './services.js';
 import { emit } from './events.js';
 
 const publicSettings = (s = getSettings()) => ({
@@ -80,17 +80,23 @@ export function registerAppRoutes(r) {
 
   r.get('/api/app/me', (req) => {
     const u = requireUser(req);
-    const enrollments = db.all(`SELECT e.*, p.slug, p.name pname, p.kind, p.tagline, p.description, p.materials FROM enrollments e JOIN products p ON p.id = e.product_id
-      WHERE e.user_id = ? AND e.status = 'active' AND p.active = 1 AND (e.expires_at IS NULL OR e.expires_at > ?) ORDER BY p.position`, u.id, now());
+    const enrollments = db.all(`SELECT e.* FROM enrollments e JOIN products p ON p.id = e.product_id
+      WHERE e.user_id = ? AND e.status = 'active' AND p.active = 1 AND (e.expires_at IS NULL OR e.expires_at > ?) ORDER BY p.position, p.id`, u.id, now());
+    const owned = new Set();
     const products = enrollments.map((e) => {
       const product = db.get('SELECT * FROM products WHERE id = ?', e.product_id);
+      owned.add(product.id);
       const lessons = db.all('SELECT * FROM lessons WHERE product_id = ? AND published = 1 ORDER BY number', e.product_id);
       const states = lessonStates(u.id, product, e, lessons);
-      return { slug: e.slug, name: e.pname, kind: e.kind, tagline: e.tagline, description: e.description, materials: jparse(e.materials, []).filter((m) => m.url), startedAt: e.started_at,
+      return { ...productPublic(product), startedAt: e.started_at, expiresAt: e.expires_at,
         releaseMode: product.release_mode, releaseDelayHours: product.release_delay_hours,
+        hasActivities: lessons.some((l) => l.activity_key),
         lessons: lessons.map((l, i) => ({ ...lessonOut(l), ...states[i] })) };
     });
-    return { user: { id: u.id, name: u.name, email: u.email, phone: u.phone }, settings: publicSettings(), products, live: nextLive() };
+    // Vitrine: produtos que o aluno ainda não tem, marcados para aparecer
+    const store = db.all('SELECT * FROM products WHERE active = 1 AND show_in_store = 1 ORDER BY position, id').filter((p) => !owned.has(p.id))
+      .map((p) => ({ ...productPublic(p), salesUrl: p.sales_url, materials: undefined, lessonsCount: db.get('SELECT COUNT(*) c FROM lessons WHERE product_id = ? AND published = 1', p.id).c }));
+    return { user: { id: u.id, name: u.name, email: u.email, phone: u.phone }, settings: publicSettings(), products, store, live: nextLive() };
   });
 
   r.get('/api/app/p/:slug/day/:n', (req) => {
@@ -99,8 +105,9 @@ export function registerAppRoutes(r) {
     const i = lessons.findIndex((l) => l.number === Number(req.params.n));
     if (i < 0) fail(404, 'Dia não encontrado.');
     const st = states[i];
-    if (!st.available) return { locked: true, lesson: lessonOut(lessons[i]), state: st };
-    return { lesson: lessonOut(lessons[i], true), state: st, answers: loadAnswers(u.id, product.id), next: lessons[i + 1] ? { number: lessons[i + 1].number, title: lessons[i + 1].title, ...states[i + 1] } : null, live: lessons[i].number === lessons.length ? nextLive() : null, delayHours: product.release_delay_hours };
+    if (!st.available) return { locked: true, product: { slug: product.slug, unitLabel: product.unit_label || 'Dia', total: lessons.length }, lesson: lessonOut(lessons[i]), state: st };
+    const meta = { slug: product.slug, unitLabel: product.unit_label || 'Dia', total: lessons.length, releaseMode: product.release_mode };
+    return { product: meta, lesson: lessonOut(lessons[i], true), state: st, answers: loadAnswers(u.id, product.id), next: lessons[i + 1] ? { number: lessons[i + 1].number, title: lessons[i + 1].title, ...states[i + 1] } : null, live: product.show_live && i === lessons.length - 1 ? nextLive() : null, delayHours: product.release_delay_hours };
   });
 
   r.put('/api/app/p/:slug/answers/:day', (req) => {
@@ -143,7 +150,7 @@ export function registerAppRoutes(r) {
   r.get('/api/app/p/:slug/results', (req) => {
     const u = requireUser(req);
     const { product } = loadEnrollment(u.id, req.params.slug);
-    return { answers: loadAnswers(u.id, product.id), live: nextLive() };
+    return { answers: loadAnswers(u.id, product.id), live: product.show_live ? nextLive() : null };
   });
 
   r.put('/api/app/profile', (req) => {

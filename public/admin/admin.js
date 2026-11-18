@@ -1,6 +1,7 @@
 import { api, esc, toast, modal, withLoading, fmtDate, fmtDateTime, relTime, $, $$ } from '/shared/ui.js';
 import { brl, pct, money, setCurrency, NOTAS_RETRATO, ARMAS, FRUTOS } from '/shared/calc.js';
 import { youtubeId, youtubeThumb } from '/shared/player.js';
+import { themeVars, varsToStyle, normalizeTheme, loadFont, contrast, FONTS } from '/shared/theme.js';
 
 const root = document.getElementById('root');
 let ME = null;
@@ -22,7 +23,7 @@ const ICONS = {
 };
 const NAV = [
   ['Operação', [['', 'Visão geral', 'dash'], ['/alunos', 'Alunos', 'users'], ['/vendas', 'Vendas', 'sales'], ['/leads', 'Leads qualificados', 'leads'], ['/vozes', 'Depoimentos e recados', 'voice']]],
-  ['Produto', [['/conteudo', 'Conteúdo', 'content'], ['/integracoes', 'Greenn e integrações', 'plug']]],
+  ['Produto', [['/conteudo', 'Produtos e conteúdo', 'content'], ['/integracoes', 'Greenn e integrações', 'plug']]],
   ['Sistema', [['/config', 'Configurações', 'gear'], ['/equipe', 'Equipe', 'team'], ['/auditoria', 'Auditoria', 'log']]],
 ];
 const ROLE = { owner: 'Proprietário', admin: 'Administrador', support: 'Suporte', viewer: 'Leitura' };
@@ -208,10 +209,54 @@ async function newStudent() {
   }) });
 }
 
+/** Liberar (ou reativar / alterar validade de) um produto para o aluno */
+function grantModal(d, id, productId = null, onlyExpiry = false) {
+  const enr = (pid) => d.enrollments.find((e) => e.product_id === pid);
+  const isActive = (pid) => { const e = enr(pid); return e && e.status === 'active' && (!e.expires_at || e.expires_at > new Date().toISOString()); };
+  const options = d.products.filter((p) => p.active && (productId ? p.id === productId : !isActive(p.id)));
+  if (!options.length) { toast('Este aluno já tem acesso a todos os produtos ativos.'); return; }
+  const cur = productId ? enr(productId) : null;
+  const today = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  const curExp = cur?.expires_at ? new Date(Date.parse(cur.expires_at) - 3 * 3600e3).toISOString().slice(0, 10) : '';
+  const defLabel = (p) => (p.access_days ? `Padrão do produto (${p.access_days} dias)` : 'Padrão do produto (vitalício)');
+  modal({ title: onlyExpiry ? 'Alterar validade' : productId ? 'Reativar acesso' : 'Liberar produto', eyebrow: d.user.name || d.user.email, body: `<form id="gf">
+    <div class="field"><label>Produto</label><select class="input" name="product_id" ${productId ? 'disabled' : ''}>${options.map((p) => `<option value="${p.id}">${esc(p.name)}${enr(p.id) ? ' (reativar)' : ''}</option>`).join('')}</select></div>
+    <div class="field"><span class="label">Validade do acesso</span>
+      <div class="radio-row">
+        ${onlyExpiry ? '' : `<label class="radio"><input type="radio" name="mode" value="default" checked><span id="deflabel">${esc(defLabel(options[0]))}</span></label>`}
+        <label class="radio"><input type="radio" name="mode" value="life" ${onlyExpiry && !curExp ? 'checked' : ''}><span>Vitalício</span></label>
+        <label class="radio"><input type="radio" name="mode" value="date" ${onlyExpiry && curExp ? 'checked' : ''}><span>Até uma data</span></label>
+      </div>
+      <input class="input" type="date" name="date" min="${today}" value="${esc(curExp)}" style="margin-top:10px;${onlyExpiry && curExp ? '' : 'display:none'}">
+    </div>
+    ${onlyExpiry ? '' : '<label class="switch" style="margin:4px 0 6px"><input type="checkbox" name="notify" checked> Avisar o aluno por e-mail</label><p class="hint" style="margin:0 0 4px">Se ele ainda não criou a senha, recebe o link de acesso. Se já criou, recebe o aviso do produto novo.</p>'}
+    <div style="margin-top:16px;display:flex;gap:8px"><button class="btn btn-primary">${onlyExpiry ? 'Salvar validade' : 'Liberar acesso'}</button><button type="button" class="btn btn-ghost" data-close>Cancelar</button></div></form>`,
+  onMount: (m, close) => {
+    const f = m.querySelector('#gf');
+    const sync = () => { f.date.style.display = f.querySelector('[name=mode]:checked')?.value === 'date' ? '' : 'none'; const p = options.find((x) => String(x.id) === String(f.product_id.value)); const dl = m.querySelector('#deflabel'); if (dl && p) dl.textContent = defLabel(p); };
+    f.addEventListener('change', sync); sync();
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const mode = f.querySelector('[name=mode]:checked')?.value || 'default';
+      if (mode === 'date' && !f.date.value) { toast('Escolha a data de validade.', { error: true }); return; }
+      const body = { product_id: Number(productId || f.product_id.value), notify: !onlyExpiry && f.notify?.checked };
+      if (mode === 'life') body.expires_at = null; else if (mode === 'date') body.expires_at = f.date.value;
+      await withLoading(e.submitter, async () => {
+        try {
+          const r = await api(`/api/admin/students/${id}/grant`, { method: 'POST', body });
+          close();
+          toast(onlyExpiry ? 'Validade atualizada' : r.email === 'failed' ? 'Acesso liberado, mas o e-mail falhou. Use "Enviar link de acesso".' : r.email ? 'Acesso liberado e aluno avisado por e-mail' : 'Acesso liberado', { error: r.email === 'failed', ms: 4500 });
+          pageStudent(id);
+        } catch (er) { toast(er.message, { error: true }); }
+      });
+    });
+  } });
+}
+
 async function pageStudent(id) {
   const d = await api(`/api/admin/students/${id}`);
   const u = d.user;
-  const j = d.journeys[0];
+  const j = d.journeys.find((x) => x.hasActivities) || null; // desafio com atividades (respostas e números)
   const c = j?.computed;
   const ans = j?.answers || {};
   setCurrency(ans[1]?.moeda || 'BRL');
@@ -220,18 +265,19 @@ async function pageStudent(id) {
     can('support') ? `<button class="btn btn-soft" id="link">Enviar link de acesso</button><button class="btn btn-soft" id="edit">Editar</button>${can('owner') ? '<button class="btn btn-danger" id="del">Excluir</button>' : ''}` : '') + `
     <div class="cols">
       <div class="c8 gap">
-        ${j ? `<div class="panel"><div class="panel-h"><h3>${esc(j.product.name)}</h3><div style="display:flex;gap:8px;align-items:center">${can('support') ? '<button class="btn btn-soft btn-sm" id="unlock">Liberar próximo dia agora</button>' : ''}</div></div><div class="panel-b">
-          <div class="days">${j.states.map((s) => `<div class="${s.completed ? 'done' : s.available ? 'open' : ''}" title="${esc(s.title)}"><b>${s.number}</b>${s.completed ? 'concluído' : s.available ? 'liberado' : s.availableAt ? fmtDateTime(s.availableAt).slice(0, 8) : 'bloqueado'}</div>`).join('')}</div>
-          ${c ? `<div class="cols" style="margin-top:16px">${[['Renda', brl(c.renda)], ['Sobra real', ans[4] ? brl(c.sobraReal) : '—'], ['Dívidas', `${brl(c.dividaTotal)}${c.dividasAtraso ? ` · ${c.dividasAtraso} em atraso` : ''}`], ['Fase', c.faseNome || '—'], ['Guardado', ans[4] ? brl(c.guardado) : '—'], ['Pode direcionar/mês', brl(c.direcionar)], ['Paz D1 → D7', `${c.pazD1 ?? '—'} → ${c.pazD7 ?? '—'}`], ['Score de lead', `${c.leadScore}/100`]].map(([l, v]) => `<div class="c3"><div class="faint" style="font-size:12px;font-weight:700">${l}</div><div style="font-weight:700;margin-top:2px">${v}</div></div>`).join('')}</div>` : ''}
-        </div></div>
-        <div class="panel"><div class="panel-h"><h3>Respostas das atividades</h3><div class="tabs" style="margin:0" id="dtabs">${[1, 2, 3, 4, 5, 6, 7].map((n) => `<button data-d="${n}" ${ans[n] ? '' : 'style="opacity:.45"'}>D${n}</button>`).join('')}</div></div><div class="panel-b" id="dans"><p class="faint">Selecione um dia.</p></div></div>` : '<div class="panel panel-b"><p class="muted">Este aluno não está inscrito no desafio.</p></div>'}
+        ${d.journeys.map((jj) => { const uu = jj.product.unitLabel || 'Dia'; const isJ = jj === j; return `<div class="panel"><div class="panel-h"><div><div class="eyebrow">${esc({ challenge: 'Desafio', course: 'Curso' }[jj.product.kind] || '')}${jj.status !== 'active' ? ` · ${esc(STATUS[jj.status]?.[0] || jj.status)}` : ''}</div><h3 style="margin-top:4px">${esc(jj.product.name)}</h3></div><div style="display:flex;gap:8px;align-items:center">${can('support') && jj.status === 'active' ? `<button class="btn btn-soft btn-sm" data-unlock="${jj.product.id}">Liberar ${/^(aula|lição|semana|etapa|parte|sessão)$/i.test(uu) ? 'próxima' : 'próximo'} ${esc(uu.toLowerCase())} agora</button>` : ''}</div></div><div class="panel-b">
+          <div class="days" style="grid-template-columns:repeat(${Math.min(7, Math.max(1, jj.states.length))},1fr)">${jj.states.map((s) => `<div class="${s.completed ? 'done' : s.available ? 'open' : ''}" title="${esc(s.title)}"><b>${s.number}</b>${s.completed ? 'concluído' : s.available ? 'liberado' : s.availableAt ? fmtDateTime(s.availableAt).slice(0, 8) : 'bloqueado'}</div>`).join('') || '<span class="faint">Sem aulas publicadas.</span>'}</div>
+          ${isJ && c ? `<div class="cols" style="margin-top:16px">${[['Renda', brl(c.renda)], ['Sobra real', ans[4] ? brl(c.sobraReal) : '—'], ['Dívidas', `${brl(c.dividaTotal)}${c.dividasAtraso ? ` · ${c.dividasAtraso} em atraso` : ''}`], ['Fase', c.faseNome || '—'], ['Guardado', ans[4] ? brl(c.guardado) : '—'], ['Pode direcionar/mês', brl(c.direcionar)], ['Paz D1 → D7', `${c.pazD1 ?? '—'} → ${c.pazD7 ?? '—'}`], ['Score de lead', `${c.leadScore}/100`]].map(([l, v]) => `<div class="c3"><div class="faint" style="font-size:12px;font-weight:700">${l}</div><div style="font-weight:700;margin-top:2px">${v}</div></div>`).join('')}</div>` : ''}
+        </div></div>`; }).join('')}
+        ${j ? '' : (d.journeys.length ? '' : '<div class="panel panel-b"><p class="muted" style="margin:0">Este aluno ainda não tem produtos com aulas.</p></div>')}
+        <div class="panel" ${j ? '' : 'hidden'}><div class="panel-h"><h3>Respostas das atividades · ${esc(j?.product.name || '')}</h3><div class="tabs" style="margin:0" id="dtabs">${[1, 2, 3, 4, 5, 6, 7].map((n) => `<button data-d="${n}" ${ans[n] ? '' : 'style="opacity:.45"'}>D${n}</button>`).join('')}</div></div><div class="panel-b" id="dans"><p class="faint">Selecione um dia.</p></div></div>
         <div class="panel"><div class="panel-h"><h3>Compras</h3></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Venda</th><th>Produto</th><th>Status</th><th class="r">Valor</th><th>Data</th></tr></thead><tbody>${d.sales.map((s) => `<tr><td>${esc(s.sale_id)}</td><td>${esc(s.product_name || s.provider_product_id)}</td><td>${badge(s.status)}</td><td class="r">${brl(s.amount)}</td><td>${fmtDateTime(s.created_at)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Sem compras registradas (acesso manual).</td></tr>'}</tbody></table></div></div>
       </div>
       <div class="c4 gap">
-        <div class="panel"><div class="panel-h"><h3>Acessos</h3></div><div class="panel-b">${d.products.map((p) => { const e = d.enrollments.find((x) => x.product_id === p.id); const active = e?.status === 'active'; return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)"><div><b>${esc(p.name)}</b><br><small class="faint">${e ? `${STATUS[e.status]?.[0] || e.status} · ${e.source} · ${fmtDate(e.started_at)}` : 'sem acesso'}</small></div>${can('support') ? `<button class="btn btn-sm ${active ? 'btn-danger' : 'btn-soft'}" data-acc="${active ? 'revoke' : 'grant'}" data-pid="${p.id}">${active ? 'Remover' : 'Liberar'}</button>` : ''}</div>`; }).join('')}</div></div>
+        <div class="panel"><div class="panel-h"><h3>Produtos do aluno</h3>${can('support') ? '<button class="btn btn-primary btn-sm" id="grant">+ Liberar produto</button>' : ''}</div><div class="panel-b acc-list">${d.enrollments.length ? d.enrollments.map((e) => { const p = d.products.find((x) => x.id === e.product_id) || {}; const active = e.status === 'active' && (!e.expires_at || e.expires_at > new Date().toISOString()); const expired = e.status === 'active' && e.expires_at && e.expires_at <= new Date().toISOString(); return `<div class="acc"><span class="acc-dot" style="background:${esc(p.theme?.accent || '#C9A45C')};box-shadow:0 0 0 3px ${esc(p.theme?.primary || '#0B1A2A')}"></span><div class="acc-main"><b>${esc(e.pname)}</b><small>${expired ? '<span class="badge warn">Expirado</span>' : active ? '<span class="badge ok">Ativo</span>' : badge(e.status)} ${{ greenn: 'Greenn', manual: 'Manual' }[e.source] || esc(e.source)} · desde ${fmtDate(e.started_at)}${e.expires_at ? ` · até ${fmtDate(e.expires_at)}` : ' · vitalício'}</small></div>${can('support') ? `<div class="acc-act">${active || expired ? `<button class="btn btn-soft btn-sm" data-exp="${e.product_id}" title="Alterar validade">Validade</button><button class="btn btn-danger btn-sm" data-acc="revoke" data-pid="${e.product_id}">Remover</button>` : `<button class="btn btn-soft btn-sm" data-reac="${e.product_id}">Reativar</button>`}</div>` : ''}</div>`; }).join('') : '<p class="faint" style="margin:0">Nenhum produto ainda.</p>'}</div></div>
         <div class="panel"><div class="panel-h"><h3>Conta</h3></div><div class="panel-b"><dl class="kv" style="grid-template-columns:110px 1fr">
           <dt>Status</dt><dd>${badge(u.status)}</dd><dt>Senha</dt><dd>${u.has_password ? 'Criada' : '<span class="badge warn">Ainda não criou</span>'}</dd><dt>Último login</dt><dd>${fmtDateTime(u.last_login_at)}</dd><dt>Visto por último</dt><dd>${relTime(u.last_seen_at)}</dd><dt>CPF/CNPJ</dt><dd>${esc(u.document || '—')}</dd>${u.notes ? `<dt>Notas</dt><dd>${esc(u.notes)}</dd>` : ''}</dl></div></div>
-        <div class="panel"><div class="panel-h"><h3>E-mails enviados</h3></div><div class="panel-b" style="font-size:13px">${d.notifications.filter((n) => n.channel === 'email').map((n) => `<div style="display:flex;justify-content:space-between;padding:5px 0"><span>${esc({ access: 'Acesso', release: `Liberação ${n.ref.split(':')[1] ? 'Dia ' + n.ref.split(':')[1] : ''}`, reset: 'Senha' }[n.kind] || n.kind)}</span><span>${n.status === 'failed' ? `<span class="badge err" title="${esc(n.error)}">falhou</span>` : n.status === 'logged' ? '<span class="badge">modo teste</span>' : '<span class="badge ok">enviado</span>'} <small class="faint">${relTime(n.created_at)}</small></span></div>`).join('') || '<span class="faint">Nenhum.</span>'}</div></div>
+        <div class="panel"><div class="panel-h"><h3>E-mails enviados</h3></div><div class="panel-b" style="font-size:13px">${d.notifications.filter((n) => n.channel === 'email').map((n) => `<div style="display:flex;justify-content:space-between;padding:5px 0"><span>${esc({ access: 'Acesso', product_access: 'Novo produto', release: `Liberação ${n.ref.split(':')[1] ? '· aula ' + n.ref.split(':')[1] : ''}`, reset: 'Senha' }[n.kind] || n.kind)}</span><span>${n.status === 'failed' ? `<span class="badge err" title="${esc(n.error)}">falhou</span>` : n.status === 'logged' ? '<span class="badge">modo teste</span>' : '<span class="badge ok">enviado</span>'} <small class="faint">${relTime(n.created_at)}</small></span></div>`).join('') || '<span class="faint">Nenhum.</span>'}</div></div>
       </div>
     </div>`;
 
@@ -260,7 +306,10 @@ async function pageStudent(id) {
         onMount: (m) => m.querySelector('[data-copy]').addEventListener('click', () => { navigator.clipboard.writeText(r.link); toast('Link copiado'); }) });
     });
   });
-  $('#unlock')?.addEventListener('click', async () => { try { const r = await api(`/api/admin/students/${id}/unlock-next`, { method: 'POST', body: { product_id: j.product.id } }); toast(`Dia ${r.day} liberado`); pageStudent(id); } catch (er) { toast(er.message, { error: true }); } });
+  $$('[data-unlock]').forEach((b) => (b.onclick = async () => { try { const r = await api(`/api/admin/students/${id}/unlock-next`, { method: 'POST', body: { product_id: Number(b.dataset.unlock) } }); toast(`${r.day}º liberado`); pageStudent(id); } catch (er) { toast(er.message, { error: true }); } }));
+  $('#grant')?.addEventListener('click', () => grantModal(d, id));
+  $$('[data-reac]').forEach((b) => (b.onclick = () => grantModal(d, id, Number(b.dataset.reac))));
+  $$('[data-exp]').forEach((b) => (b.onclick = () => grantModal(d, id, Number(b.dataset.exp), true)));
   $$('[data-acc]').forEach((b) => (b.onclick = async () => {
     if (b.dataset.acc === 'revoke' && !confirm('Remover o acesso deste aluno a este produto?')) return;
     await api(`/api/admin/students/${id}/${b.dataset.acc}`, { method: 'POST', body: { product_id: Number(b.dataset.pid) } }); toast('Acesso atualizado'); pageStudent(id);
@@ -339,36 +388,144 @@ async function pageVoices() {
 }
 
 // ---------- conteúdo ----------
-async function pageContent() {
-  const { rows } = await api('/api/admin/products');
-  $('#main').innerHTML = head('Conteúdo', 'Produtos, dias do desafio, vídeos e textos. Vincule aqui os IDs dos produtos da Greenn.', can('admin') ? '<button class="btn btn-primary" id="np">+ Novo produto</button>' : '') + `
-    <div class="cols">${rows.map((p) => `<div class="panel c6"><div class="panel-h"><div><div class="eyebrow">${{ challenge: 'Desafio', course: 'Curso', bonus: 'Bônus / order bump' }[p.kind]}</div><h3 style="margin-top:4px">${esc(p.name)}</h3></div>${p.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge">Inativo</span>'}</div>
-      <div class="panel-b"><dl class="kv" style="grid-template-columns:150px 1fr"><dt>IDs na Greenn</dt><dd>${p.greenn_ids ? p.greenn_ids.split(',').map((x) => `<span class="badge ink">${esc(x)}</span>`).join(' ') : '<span class="badge warn">Não vinculado</span>'}</dd><dt>Aulas</dt><dd>${p.lessons}</dd><dt>Alunos ativos</dt><dd>${p.students}</dd><dt>Liberação</dt><dd>${{ after_complete: `${p.release_delay_hours}h após concluir o dia anterior`, drip: 'Por calendário (dias após a compra)', sequential: 'Imediata ao concluir o anterior', open: 'Tudo liberado' }[p.release_mode]}</dd></dl>
-      <a class="btn btn-soft btn-sm" style="margin-top:14px" href="${BASE}/conteudo/${p.id}" data-go="/conteudo/${p.id}">Editar produto e aulas</a></div></div>`).join('')}</div>`;
-  $('#np')?.addEventListener('click', () => productModal());
+const KIND = { challenge: 'Desafio', course: 'Curso', bonus: 'Bônus / material' };
+const PRESETS = [
+  ['Azul e dourado', { primary: '#0B1A2A', accent: '#C9A45C', secondary: '#1F6B52' }],
+  ['Vinho e champanhe', { primary: '#2B0F18', accent: '#D8B48A', secondary: '#7A2E3B' }],
+  ['Petróleo e coral', { primary: '#0E2A30', accent: '#F08A6C', secondary: '#2C7A7B' }],
+  ['Grafite e âmbar', { primary: '#17181C', accent: '#F2A93B', secondary: '#4B5563' }],
+  ['Roxo e ouro', { primary: '#1E1433', accent: '#E3C06F', secondary: '#5B3E99' }],
+  ['Verde e areia', { primary: '#10261C', accent: '#D9C08C', secondary: '#3F7D58' }],
+];
+
+/** Cartão do produto como o aluno vê na vitrine (usado na lista e na prévia) */
+function previewCard(p, theme) {
+  const vars = varsToStyle(themeVars(theme));
+  loadFont(normalizeTheme(theme).font);
+  return `<div class="pv-card" style="${vars}"><div class="pv-cover">${p.cover_url ? `<img src="${esc(p.cover_url)}" alt="">` : `<div class="pv-art">${p.logo_url ? `<img class="pv-logo" src="${esc(p.logo_url)}" alt="">` : `<span class="pv-mono">${esc(((p.short_name || p.name || 'P').trim()[0]) || 'P')}</span>`}</div>`}<span class="pv-kind">${esc(p.badge || KIND[p.kind] || 'Desafio')}</span></div>
+    <div class="pv-body"><b>${esc(p.name || 'Nome do produto')}</b>${p.tagline ? `<p>${esc(p.tagline)}</p>` : ''}<div class="pv-bar"><i></i></div><div class="pv-foot"><span>2 de 7</span><span class="pv-cta">Continuar →</span></div></div></div>`;
+}
+function previewHero(p, theme) {
+  const vars = varsToStyle(themeVars(theme));
+  return `<div class="pv-hero" style="${vars}"><div class="pv-top">${p.logo_url ? `<img src="${esc(p.logo_url)}" alt="">` : '<i></i>'}<span>${esc(p.short_name || p.name || 'Produto')}<small>${esc(p.mentor || '')}</small></span></div>
+    <div class="pv-hero-in"><div class="pv-eyebrow">${esc(p.name || '')}</div><div class="pv-h1">Olá, <em>Maria</em>.</div><span class="pv-btn">▶ Começar ${esc((p.unit_label || 'Dia').toLowerCase())} 1</span></div></div>`;
 }
 
-function productModal(p = {}) {
+async function pageContent() {
+  const { rows } = await api('/api/admin/products');
+  $('#main').innerHTML = head('Produtos', 'Cada produto tem a sua identidade visual, as suas aulas e o seu vínculo com a Greenn.', can('admin') ? '<button class="btn btn-primary" id="np">+ Novo produto</button>' : '') + `
+    <div class="prod-grid">${rows.map((p) => `<div class="panel prod">
+      <a class="prod-pv" href="${BASE}/conteudo/${p.id}" data-go="/conteudo/${p.id}">${previewCard(p, p.theme_obj)}</a>
+      <div class="panel-b"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="eyebrow">${esc(KIND[p.kind])}</span><span>${p.active ? '<span class="badge ok">Ativo</span>' : '<span class="badge">Inativo</span>'}${p.show_in_store ? ' <span class="badge gold">Na vitrine</span>' : ''}</span></div>
+      <dl class="kv" style="grid-template-columns:118px 1fr;margin-top:12px"><dt>Greenn</dt><dd>${p.greenn_ids ? p.greenn_ids.split(',').map((x) => `<span class="badge ink">${esc(x)}</span>`).join(' ') : '<span class="badge warn">Não vinculado</span>'}</dd><dt>${esc(p.kind === 'bonus' ? 'Materiais' : (p.unit_label || 'Dia') + 's')}</dt><dd>${p.kind === 'bonus' ? (p.materials || []).length : p.lessons}</dd><dt>Alunos ativos</dt><dd>${p.students}</dd>${p.kind !== 'bonus' ? `<dt>Liberação</dt><dd>${{ after_complete: `${p.release_delay_hours}h após concluir`, drip: 'Por calendário', sequential: 'Ao concluir o anterior', open: 'Tudo liberado' }[p.release_mode]}</dd>` : ''}</dl>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><a class="btn btn-soft btn-sm" href="${BASE}/conteudo/${p.id}" data-go="/conteudo/${p.id}">${p.kind === 'bonus' ? 'Abrir' : 'Aulas e conteúdo'}</a>${can('admin') ? `<button class="btn btn-ghost btn-sm" data-edit="${p.id}">Configurar e identidade</button>` : ''}</div></div></div>`).join('')}</div>`;
+  $('#np')?.addEventListener('click', () => productModal());
+  $$('[data-edit]').forEach((b) => (b.onclick = () => productModal(rows.find((x) => String(x.id) === b.dataset.edit))));
+}
+
+function productModal(p = {}, startTab = 'geral') {
   const mats = (p.materials || []).map((m) => `${m.title} | ${m.url}`).join('\n');
-  modal({ title: p.id ? 'Configurar produto' : 'Novo produto', wide: true, body: `<form id="pf" class="form-grid">
-    <div class="field"><label>Nome</label><input class="input" name="name" value="${esc(p.name)}" required></div>
-    <div class="field"><label>Identificador (slug)</label><input class="input" name="slug" value="${esc(p.slug)}" placeholder="desafio-7-dias" required></div>
-    <div class="field"><label>Tipo</label><select class="input" name="kind">${[['challenge', 'Desafio (dias com atividades)'], ['course', 'Curso'], ['bonus', 'Bônus / order bump (materiais)']].map(([v, l]) => `<option value="${v}" ${p.kind === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-    <div class="field"><label>IDs do produto na Greenn</label><input class="input" name="greenn_ids" value="${esc(p.greenn_ids)}" placeholder="Ex.: 123456, 123457"><span class="hint">O número que aparece na URL de edição do produto na Greenn. Separe vários por vírgula (oferta principal, ofertas com outro preço, combo…).</span></div>
-    <div class="field"><label>Liberação dos dias</label><select class="input" name="release_mode">${[['after_complete', 'X horas após concluir o dia anterior (recomendado)'], ['sequential', 'Imediata ao concluir o anterior'], ['drip', 'Por calendário (dias após a compra)'], ['open', 'Tudo liberado de uma vez']].map(([v, l]) => `<option value="${v}" ${(p.release_mode || 'after_complete') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-    <div class="field"><label>Intervalo de liberação (horas)</label><input class="input" name="release_delay_hours" type="number" min="0" value="${esc(p.release_delay_hours ?? 24)}"></div>
-    <div class="field"><label>Duração do acesso (dias)</label><input class="input" name="access_days" type="number" min="1" value="${esc(p.access_days ?? '')}" placeholder="Vazio = vitalício"></div>
-    <div class="field"><label>Ordem</label><input class="input" name="position" type="number" value="${esc(p.position ?? 0)}"></div>
-    <div class="field full"><label>Frase de apoio</label><input class="input" name="tagline" value="${esc(p.tagline)}"></div>
-    <div class="field full"><label>Materiais para download (um por linha: Título | URL)</label><textarea class="input" name="materials" placeholder="Guia rápido: Casa em Ordem | https://…/guia.pdf">${esc(mats)}</textarea></div>
-    <label class="switch full"><input type="checkbox" name="active" ${p.active !== 0 ? 'checked' : ''}> Produto ativo</label>
-    <div class="full" style="margin-top:16px"><button class="btn btn-primary">Salvar</button></div></form>`,
-  onMount: (m, close) => m.querySelector('#pf').addEventListener('submit', async (e) => {
-    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
-    f.active = !!f.active; f.materials = String(f.materials || '').split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((x) => x[0]).map(([title, url]) => ({ title, url: url || '' }));
-    try { if (p.id) await api(`/api/admin/products/${p.id}`, { method: 'PUT', body: f }); else await api('/api/admin/products', { method: 'POST', body: f }); close(); toast('Produto salvo'); route(); }
-    catch (er) { toast(er.message, { error: true }); }
-  }) });
+  const th = normalizeTheme(p.theme_obj || {});
+  const opt = (name, list, cur) => `<select class="input" name="${name}">${list.map(([v, l]) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const color = (k, label, hint) => `<div class="field"><label>${label}</label><div class="color-in"><input type="color" data-color="${k}" value="${th[k]}"><input class="input" data-hex="${k}" value="${th[k]}" maxlength="7" spellcheck="false"></div><span class="hint">${hint}</span></div>`;
+  const img = (target, label, url, hint) => `<div class="field img-field" data-target="${target}"><label>${label}</label><div class="img-box ${target}">${url ? `<img src="${esc(url)}" alt="">` : `<span>${p.id ? 'Nenhuma imagem' : 'Salve o produto para enviar'}</span>`}</div>
+    ${p.id ? `<div class="cover-actions"><label class="btn btn-soft btn-sm">${url ? 'Trocar' : 'Enviar imagem'}<input type="file" accept="image/png,image/jpeg,image/webp${target === 'logo' ? ',image/svg+xml' : ''}" hidden></label>${url ? '<button type="button" class="btn btn-ghost btn-sm" data-img-del>Remover</button>' : ''}</div>` : ''}<span class="hint">${hint}</span></div>`;
+  modal({ title: p.id ? p.name : 'Novo produto', eyebrow: p.id ? 'Configurar produto' : 'Produto', wide: true, body: `
+    <div class="tabs" id="ptabs"><button type="button" data-t="geral">Geral</button><button type="button" data-t="visual">Identidade visual</button><button type="button" data-t="vitrine">Vitrine e vendas</button></div>
+    <form id="pf">
+    <section data-sec="geral" class="form-grid">
+      <div class="field"><label>Nome completo</label><input class="input" name="name" value="${esc(p.name)}" required></div>
+      <div class="field"><label>Nome curto (topo do app)</label><input class="input" name="short_name" value="${esc(p.short_name)}" placeholder="Ex.: Caminho Bíblico"></div>
+      <div class="field"><label>Identificador na URL</label><input class="input" name="slug" value="${esc(p.slug)}" placeholder="desafio-7-dias" required><span class="hint">Endereço do produto: /p/<b>${esc(p.slug || 'identificador')}</b></span></div>
+      <div class="field"><label>Mentor / autor</label><input class="input" name="mentor" value="${esc(p.mentor)}" placeholder="Ex.: Rhus Moreira"></div>
+      <div class="field"><label>Tipo</label>${opt('kind', [['challenge', 'Desafio (aulas + atividades)'], ['course', 'Curso (aulas)'], ['bonus', 'Bônus / material para download']], p.kind || 'challenge')}</div>
+      <div class="field"><label>Cada aula se chama</label>${opt('unit_label', [['Dia', 'Dia (Dia 1, Dia 2…)'], ['Aula', 'Aula'], ['Módulo', 'Módulo'], ['Lição', 'Lição'], ['Semana', 'Semana'], ['Episódio', 'Episódio'], ['Material', 'Material']], p.unit_label || 'Dia')}</div>
+      <div class="field full"><label>Frase de apoio</label><input class="input" name="tagline" value="${esc(p.tagline)}" placeholder="Aparece na vitrine e no topo da jornada"></div>
+      <div class="field"><label>IDs do produto na Greenn</label><input class="input" name="greenn_ids" value="${esc(p.greenn_ids)}" placeholder="Ex.: 123456, 123457"><span class="hint">Número da URL de edição do produto na Greenn. Vários separados por vírgula.</span></div>
+      <div class="field"><label>Duração do acesso (dias)</label><input class="input" name="access_days" type="number" min="1" value="${esc(p.access_days ?? '')}" placeholder="Vazio = vitalício"></div>
+      <div class="field"><label>Liberação das aulas</label>${opt('release_mode', [['after_complete', 'X horas após concluir a anterior'], ['sequential', 'Na hora, ao concluir a anterior'], ['drip', 'Por calendário (dias após a compra)'], ['open', 'Tudo liberado de uma vez']], p.release_mode || 'after_complete')}</div>
+      <div class="field"><label>Intervalo de liberação (horas)</label><input class="input" name="release_delay_hours" type="number" min="0" value="${esc(p.release_delay_hours ?? 24)}"></div>
+      <div class="field full"><label>Materiais para download (um por linha: Título | URL)</label><textarea class="input" name="materials" placeholder="Guia rápido | https://…/guia.pdf">${esc(mats)}</textarea></div>
+      <label class="switch full"><input type="checkbox" name="show_live" ${p.show_live ? 'checked' : ''}> Mostrar o convite da aula ao vivo neste produto</label>
+      <label class="switch full"><input type="checkbox" name="active" ${p.active !== 0 ? 'checked' : ''}> Produto ativo</label>
+    </section>
+    <section data-sec="visual" hidden>
+      <div class="visual-grid"><div>
+        <div class="field"><span class="label">Paletas prontas</span><div class="presets">${PRESETS.map(([n, c], i) => `<button type="button" class="preset" data-preset="${i}" title="${esc(n)}"><i style="background:${c.primary}"></i><i style="background:${c.accent}"></i><i style="background:${c.secondary}"></i><span>${esc(n)}</span></button>`).join('')}</div></div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">${color('primary', 'Cor base', 'Fundos escuros, topo e botões principais')}${color('accent', 'Cor de destaque', 'Botões dourados, progresso, detalhes')}${color('secondary', 'Cor de apoio', 'Concluído, gradientes, confirmações')}</div>
+        <div id="contrast"></div>
+        <div class="field"><label>Fonte dos títulos</label><select class="input" data-font>${Object.entries(FONTS).map(([k, f]) => `<option value="${esc(k)}" ${th.font === k ? 'selected' : ''}>${esc(f.label)}</option>`).join('')}</select></div>
+        <div class="form-grid">${img('logo', 'Logo', p.logo_url, 'PNG ou SVG com fundo transparente, quadrado, 512 × 512 px.')}${img('cover', 'Capa da vitrine', p.cover_url, '1600 × 900 px (16:9), JPG ou WebP, até 5 MB.')}</div>
+      </div>
+      <div class="pv-col"><span class="label">Prévia</span><div id="pv"></div><p class="hint">É assim que o aluno vê o produto na vitrine e no topo da jornada.</p></div></div>
+    </section>
+    <section data-sec="vitrine" hidden class="form-grid">
+      <div class="field full"><p class="muted" style="margin:0">Alunos que têm <b>mais de um produto</b> entram numa vitrine com todos os seus conteúdos. Você também pode mostrar este produto para quem <b>ainda não comprou</b>, com um botão para a página de vendas.</p></div>
+      <label class="switch full"><input type="checkbox" name="show_in_store" ${p.show_in_store ? 'checked' : ''}> Mostrar na vitrine para quem ainda não tem este produto</label>
+      <div class="field full"><label>Link da página de vendas</label><input class="input" name="sales_url" value="${esc(p.sales_url)}" placeholder="https://…"><span class="hint">Abre ao clicar em "Quero conhecer". Sem link, o cartão aparece como "Em breve".</span></div>
+      <div class="field"><label>Selo do cartão</label><input class="input" name="badge" value="${esc(p.badge)}" maxlength="24" placeholder="Ex.: Novo, Bônus, Mais vendido"><span class="hint">Opcional. Vazio = tipo do produto.</span></div>
+      <div class="field"><label>Ordem na vitrine</label><input class="input" name="position" type="number" value="${esc(p.position ?? 0)}"><span class="hint">Menor aparece primeiro.</span></div>
+    </section>
+    ${can('admin') ? '<div style="margin-top:18px;display:flex;gap:8px"><button class="btn btn-primary">Salvar produto</button><button type="button" class="btn btn-ghost" data-close>Cancelar</button></div>' : ''}
+    </form>`,
+  onMount: (m, close) => {
+    const f = m.querySelector('#pf');
+    const theme = { ...th };
+    const state = { ...p };
+    const tab = (t) => { m.querySelectorAll('#ptabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); m.querySelectorAll('[data-sec]').forEach((x) => (x.hidden = x.dataset.sec !== t)); };
+    m.querySelectorAll('#ptabs button').forEach((b) => (b.onclick = () => tab(b.dataset.t)));
+    tab(startTab);
+    const live = () => {
+      const fd = Object.fromEntries(new FormData(f));
+      Object.assign(state, { name: fd.name, short_name: fd.short_name, mentor: fd.mentor, tagline: fd.tagline, kind: fd.kind, unit_label: fd.unit_label, badge: fd.badge });
+      m.querySelector('#pv').innerHTML = previewHero(state, theme) + previewCard(state, theme);
+      const c1 = contrast(theme.accent, themeVars(theme)['--on-gold'] || '#07121D');
+      const c2 = contrast(theme.primary, '#ffffff');
+      const warn = [c2 < 4.5 && 'A cor base está clara demais: textos brancos sobre ela ficam difíceis de ler. Prefira um tom escuro.', c1 < 3 && 'O texto sobre a cor de destaque terá pouco contraste.'].filter(Boolean);
+      m.querySelector('#contrast').innerHTML = warn.length ? `<div class="alert alert-warn">${warn.join(' ')}</div>` : '';
+    };
+    const setColor = (k, v) => { theme[k] = v; m.querySelector(`[data-color="${k}"]`).value = v; m.querySelector(`[data-hex="${k}"]`).value = v; live(); };
+    m.querySelectorAll('[data-color]').forEach((i) => i.addEventListener('input', () => setColor(i.dataset.color, i.value)));
+    m.querySelectorAll('[data-hex]').forEach((i) => i.addEventListener('input', () => { const v = i.value.trim(); if (/^#[0-9a-f]{6}$/i.test(v)) setColor(i.dataset.hex, v.toUpperCase()); }));
+    m.querySelector('[data-font]').addEventListener('change', (e) => { theme.font = e.target.value; loadFont(theme.font); live(); });
+    m.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => { const c = PRESETS[Number(b.dataset.preset)][1]; ['primary', 'accent', 'secondary'].forEach((k) => setColor(k, c[k])); }));
+    f.addEventListener('input', (e) => { if (!e.target.matches('[data-color],[data-hex]')) live(); });
+    // imagens (logo e capa)
+    m.querySelectorAll('.img-field').forEach((box) => {
+      const target = box.dataset.target;
+      box.querySelector('input[type=file]')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0]; if (!file) return;
+        try {
+          box.querySelector('.img-box').classList.add('is-loading');
+          const { data, warn } = await prepareImage(file, { maxWidth: target === 'logo' ? 800 : 1600, keepRatio: target === 'logo' });
+          const r = await api(`/api/admin/products/${p.id}/image`, { method: 'POST', body: { target, data } });
+          state[target === 'logo' ? 'logo_url' : 'cover_url'] = r.url; p[target === 'logo' ? 'logo_url' : 'cover_url'] = r.url;
+          box.querySelector('.img-box').innerHTML = `<img src="${esc(r.url)}" alt="">`;
+          box.querySelector('.img-box').classList.remove('is-loading');
+          toast(warn || 'Imagem atualizada', { ms: warn ? 5000 : 2500 }); live();
+        } catch (er) { toast(er.message, { error: true }); box.querySelector('.img-box').classList.remove('is-loading'); }
+      });
+      box.querySelector('[data-img-del]')?.addEventListener('click', async () => {
+        await api(`/api/admin/products/${p.id}/image?target=${target}`, { method: 'DELETE' });
+        state[target === 'logo' ? 'logo_url' : 'cover_url'] = null; p[target === 'logo' ? 'logo_url' : 'cover_url'] = null;
+        box.querySelector('.img-box').innerHTML = '<span>Nenhuma imagem</span>'; box.querySelector('[data-img-del]').remove(); toast('Imagem removida'); live();
+      });
+    });
+    live();
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(f));
+      fd.active = !!fd.active; fd.show_live = !!fd.show_live; fd.show_in_store = !!fd.show_in_store;
+      fd.theme = theme;
+      fd.materials = String(fd.materials || '').split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((x) => x[0]).map(([title, url]) => ({ title, url: url || '' }));
+      await withLoading(e.submitter, async () => {
+        try {
+          if (p.id) { await api(`/api/admin/products/${p.id}`, { method: 'PUT', body: fd }); close(); toast('Produto salvo'); route(); }
+          else { const r = await api('/api/admin/products', { method: 'POST', body: fd }); close(); toast('Produto criado. Agora envie o logo e a capa.'); const { rows } = await api('/api/admin/products'); go(`/conteudo/${r.id}`); setTimeout(() => productModal(rows.find((x) => x.id === r.id), 'visual'), 400); }
+        } catch (er) { toast(er.message, { error: true }); }
+      });
+    });
+  } });
 }
 
 async function pageProduct(id) {
@@ -396,18 +553,20 @@ function coverField(target, label, url, videoUrl) {
     <span class="hint">Ideal: 1920 × 1080 px (16:9), JPG ou WebP, até 5 MB. Imagens maiores são reduzidas automaticamente.</span>
   </div>`;
 }
-async function prepareImage(file) {
+const readDataUrl = (file) => new Promise((r, j) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => j(new Error('Não foi possível ler o arquivo.')); fr.readAsDataURL(file); });
+async function prepareImage(file, { maxWidth = 1920, keepRatio = false } = {}) {
+  if (file.type === 'image/svg+xml') { if (file.size > 1024 * 1024) throw new Error('SVG muito grande (máximo 1 MB).'); return { data: await readDataUrl(file), warn: '' }; }
   if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error('Use uma imagem JPG, PNG ou WebP.');
   const url = URL.createObjectURL(file);
   const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Não foi possível ler a imagem.')); i.src = url; }).finally(() => setTimeout(() => URL.revokeObjectURL(url), 1000));
   const ratio = img.naturalWidth / img.naturalHeight;
-  const warn = Math.abs(ratio - 16 / 9) > 0.05 ? `A imagem tem ${img.naturalWidth}×${img.naturalHeight}. Ela será cortada para 16:9.` : '';
-  const scale = Math.min(1, 1920 / img.naturalWidth);
+  const warn = !keepRatio && Math.abs(ratio - 16 / 9) > 0.05 ? `A imagem tem ${img.naturalWidth}×${img.naturalHeight}. Ela será cortada para 16:9.` : '';
+  const scale = Math.min(1, maxWidth / img.naturalWidth);
   if (scale === 1 && file.size <= 1.5 * 1024 * 1024) return { data: await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(file); }), warn };
   const c = document.createElement('canvas');
   c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  let data = c.toDataURL('image/webp', 0.86);
+  let data = keepRatio && file.type === 'image/png' ? c.toDataURL('image/png') : c.toDataURL('image/webp', 0.86);
   if (!data.startsWith('data:image/webp')) data = c.toDataURL('image/jpeg', 0.86);
   return { data, warn };
 }
@@ -531,7 +690,7 @@ async function pageSettings() {
   const f = (k, label, o = {}) => `<div class="field ${o.full ? 'full' : ''}"><label>${label}</label>${o.area ? `<textarea class="input" name="${k}">${esc(s[k])}</textarea>` : o.opts ? `<select class="input" name="${k}">${o.opts.map(([v, l]) => `<option value="${v}" ${String(s[k]) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select>` : `<input class="input" name="${k}" type="${o.type || 'text'}" value="${esc(s[k])}" placeholder="${esc(o.ph || '')}">`}${o.hint ? `<span class="hint">${o.hint}</span>` : ''}</div>`;
   const sw = (k, label) => `<label class="switch full" style="margin:6px 0 14px"><input type="checkbox" data-bool="${k}" ${s[k] === 'true' ? 'checked' : ''}> ${label}</label>`;
   const tabs = {
-    brand: ['Marca e suporte', `${f('brand_name', 'Nome do produto (aparece em e-mails e no app)', { full: true })}${f('brand_short', 'Nome curto (topo do app)')}${f('mentor_name', 'Mentor')}${f('support_email', 'E-mail de suporte', { type: 'email' })}${f('support_whatsapp', 'WhatsApp de suporte', { ph: '+55 11 99999-9999' })}${f('guide_url', 'Link do Guia rápido Casa em Ordem (PDF)', { full: true, hint: 'Aparece no fim da atividade do Dia 6.' })}`],
+    brand: ['Marca e suporte', `${f('brand_name', 'Nome da plataforma (e-mails, login e vitrine de produtos)', { full: true })}${f('brand_short', 'Nome curto (topo do app)')}${f('mentor_name', 'Mentor')}${f('support_email', 'E-mail de suporte', { type: 'email' })}${f('support_whatsapp', 'WhatsApp de suporte', { ph: '+55 11 99999-9999' })}${f('guide_url', 'Link do Guia rápido Casa em Ordem (PDF)', { full: true, hint: 'Aparece no fim da atividade do Dia 6.' })}`],
     email: ['E-mail', `${f('email_provider', 'Provedor de envio', { opts: [['log', 'Modo teste (não envia, só registra)'], ['resend', 'Resend (recomendado)'], ['brevo', 'Brevo'], ['smtp', 'SMTP próprio']] })}${f('email_from_address', 'E-mail remetente', { type: 'email', ph: 'contato@seudominio.com.br', hint: 'O domínio precisa estar verificado no provedor (SPF/DKIM).' })}${f('email_from_name', 'Nome do remetente')}${f('resend_api_key', 'Resend · API key')}${f('brevo_api_key', 'Brevo · API key')}${f('smtp_host', 'SMTP · servidor')}${f('smtp_port', 'SMTP · porta', { ph: '465 ou 587' })}${f('smtp_user', 'SMTP · usuário')}${f('smtp_pass', 'SMTP · senha', { type: 'password' })}${f('smtp_secure', 'SMTP · TLS', { opts: [['true', 'TLS direto (porta 465)'], ['false', 'STARTTLS (porta 587)']] })}
       ${sw('release_emails', 'Enviar e-mail automático quando cada dia for liberado')}<div class="full"><button type="button" class="btn btn-soft btn-sm" id="te">Enviar e-mail de teste para mim</button></div>`],
     live: ['Aula ao vivo', `${sw('live_enabled', 'Mostrar o convite da aula ao vivo (Dias 6 e 7 e resultados)')}${f('live_title', 'Título', { full: true })}${f('live_weekday', 'Dia da semana', { opts: [[0, 'Domingo'], [1, 'Segunda'], [2, 'Terça'], [3, 'Quarta'], [4, 'Quinta'], [5, 'Sexta'], [6, 'Sábado']] })}${f('live_time', 'Horário (Brasília)', { type: 'time' })}${f('live_url', 'Link da aula (YouTube, Zoom, StreamYard…)', { full: true })}${f('live_description', 'Descrição', { full: true, area: true })}`],

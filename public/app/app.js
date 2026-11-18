@@ -2,6 +2,7 @@ import { api, esc, toast, modal, withLoading, countdown, videoEmbed, firstName, 
 import { compute, brl, NOTAS_RETRATO, setCurrency } from '/shared/calc.js';
 import { mountActivity, casaHtml, planoHtml, fmtLive, liveDateHtml } from '/activities.js';
 import { mountPlayer, youtubeId } from '/shared/player.js';
+import { applyTheme, resetTheme, themeVars, varsToStyle, loadFont, normalizeTheme } from '/shared/theme.js';
 
 const app = document.getElementById('app');
 let ME = null;
@@ -10,7 +11,10 @@ let cleanups = [];
 const clearTimers = () => { timers.forEach(clearInterval); timers = []; cleanups.forEach((f) => { try { f(); } catch { /* */ } }); cleanups = []; };
 
 const ICON = {
-  mark: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M6 8h12" stroke="#E6CD97" stroke-width="1.8" stroke-linecap="round"/><path d="M4.5 19.5c2.4-1.3 4.9-2 7.5-2s5.1.7 7.5 2" stroke="#7FB8A2" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  mark: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M6 8h12" style="stroke:var(--gold-300)" stroke-width="1.8" stroke-linecap="round"/><path d="M4.5 19.5c2.4-1.3 4.9-2 7.5-2s5.1.7 7.5 2" style="stroke:var(--forest-300)" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  file: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>',
   chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
@@ -35,7 +39,22 @@ window.addEventListener('popstate', route);
 async function loadMe() {
   try { ME = await api('/api/app/me'); return ME; } catch (e) { if (e.status === 401) { ME = null; return null; } throw e; }
 }
-const mainProduct = () => ME?.products.find((p) => p.kind === 'challenge') || ME?.products[0];
+const mainProduct = () => ME?.products.find((p) => p.kind === 'challenge') || ME?.products.find((p) => p.kind !== 'bonus') || ME?.products[0];
+const mains = () => (ME?.products || []).filter((p) => p.kind !== 'bonus');
+const isMulti = () => mains().length >= 2;
+const bySlug = (slug) => ME?.products.find((p) => p.slug === slug);
+let CUR = null; // produto em contexto (identidade visual, navegação)
+const KIND_LABEL = { challenge: 'Desafio', course: 'Curso', bonus: 'Material' };
+const FEM = new Set(['aula', 'lição', 'licao', 'semana', 'etapa', 'fase', 'parte', 'sessão', 'sessao', 'live', 'jornada', 'trilha']);
+/** Concordância do rótulo da unidade (Dia/Módulo → o; Aula/Lição/Semana → a) */
+const U = (p) => { const label = p?.unitLabel || 'Dia'; const f = FEM.has(label.toLowerCase()); return { label, o: f ? 'a' : 'o', O: f ? 'A' : 'O', concl: f ? 'concluída' : 'concluído', lib: f ? 'liberada' : 'liberado', este: f ? 'Esta' : 'Este', anterior: f ? 'a anterior' : 'o anterior' }; };
+const productHref = (p) => (isMulti() || p.kind === 'bonus' ? `/p/${p.slug}` : '/');
+const dayHref = (p, n) => `/p/${p.slug}/dia/${n}`;
+const resultsHref = (p) => (isMulti() ? `/p/${p.slug}/resultados` : '/resultados');
+function setContext(p) {
+  CUR = p || null;
+  if (p) applyTheme(p.theme); else resetTheme();
+}
 
 async function route() {
   clearTimers();
@@ -45,20 +64,41 @@ async function route() {
   if (!ME) await loadMe().catch(() => null);
   if (!ME) return go('/login', true);
   window.scrollTo(0, 0);
-  const m = path.match(/^\/dia\/(\d+)$/);
-  if (m) return pageDay(Number(m[1]));
-  if (path === '/resultados') return pageResults();
-  if (path === '/perfil') return pageProfile();
-  return pageHome();
+  let m;
+  // links antigos (/dia/N e /resultados) continuam funcionando: apontam para o desafio principal
+  if ((m = path.match(/^\/dia\/(\d+)$/))) { const mp = mainProduct(); return mp ? go(dayHref(mp, Number(m[1])), true) : pageHome(); }
+  if (path === '/resultados') { const mp = mainProduct(); if (mp) { setContext(mp); return pageResults(mp); } }
+  if ((m = path.match(/^\/p\/([\w-]+)(?:\/(dia\/(\d+)|resultados))?$/))) {
+    const p = bySlug(m[1]);
+    if (!p) return pageNotOwned(m[1]);
+    setContext(p);
+    if (m[3]) return pageDay(p, Number(m[3]));
+    if (m[2] === 'resultados') return pageResults(p);
+    return p.kind === 'bonus' ? pageBonus(p) : pageHome(p);
+  }
+  if (path === '/perfil') { setContext(isMulti() ? null : mainProduct()); return pageProfile(); }
+  if (isMulti()) { setContext(null); return pageStore(); }
+  const only = mainProduct();
+  setContext(only);
+  if (only?.kind === 'bonus') return pageBonus(only);
+  return pageHome(only);
 }
 
 // ---------- casca ----------
 function shell(content, active, { wide } = {}) {
   const s = ME.settings;
-  const nav = [['/', 'Jornada', ICON.home, 'home'], ['/resultados', 'Resultados', ICON.chart, 'results'], ['/perfil', 'Perfil', ICON.user, 'profile']];
+  const p = CUR;
+  const nav = [];
+  if (isMulti()) nav.push(['/', 'Início', ICON.grid, 'store']);
+  if (p && p.kind !== 'bonus') nav.push([productHref(p), isMulti() ? (p.kind === 'challenge' ? 'Jornada' : 'Conteúdo') : 'Jornada', ICON.home, 'home']);
+  if (p?.hasActivities) nav.push([resultsHref(p), 'Resultados', ICON.chart, 'results']);
+  nav.push(['/perfil', 'Perfil', ICON.user, 'profile']);
+  const brandName = p ? p.shortName || p.name : s.brand_name || 'Área de membros';
+  const brandSub = p ? p.mentor || (isMulti() ? KIND_LABEL[p.kind] : s.mentor_name) || '' : 'Área de membros';
+  const mark = p?.logo ? `<span class="brand-logo"><img src="${esc(p.logo)}" alt=""></span>` : `<span class="brand-mark">${ICON.mark}</span>`;
   app.innerHTML = `
     <header class="topbar"><div class="topbar-in">
-      <a class="brand" href="/" data-link><span class="brand-mark">${ICON.mark}</span><span class="brand-name">${esc(s.brand_short || 'Caminho Bíblico')}<small>${esc(s.mentor_name || '')}</small></span></a>
+      <a class="brand" href="${p ? productHref(p) : '/'}" data-link>${mark}<span class="brand-name">${esc(brandName)}<small>${esc(brandSub)}</small></span></a>
       <nav class="topnav">${nav.map(([h, l, , k]) => `<a href="${h}" data-link class="${active === k ? 'active' : ''}">${l}</a>`).join('')}</nav>
       <a class="avatar" href="/perfil" data-link title="Meu perfil">${esc((firstName(ME.user.name) || ME.user.email)[0].toUpperCase())}</a>
     </div></header>
@@ -140,53 +180,147 @@ async function pageAccess() {
 // ---------- jornada ----------
 function ring(done, total) {
   const r = 44, c = 2 * Math.PI * r, p = total ? done / total : 0;
-  return `<div class="ring"><svg viewBox="0 0 104 104"><circle cx="52" cy="52" r="${r}" stroke="rgba(255,255,255,.12)" stroke-width="7" fill="none"/><circle cx="52" cy="52" r="${r}" stroke="#C9A45C" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p)}" style="transition:stroke-dashoffset 1s var(--ease)"/></svg>
+  return `<div class="ring"><svg viewBox="0 0 104 104"><circle cx="52" cy="52" r="${r}" stroke="rgba(255,255,255,.12)" stroke-width="7" fill="none"/><circle cx="52" cy="52" r="${r}" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p)}" style="stroke:var(--gold-500);transition:stroke-dashoffset 1s var(--ease)"/></svg>
     <div class="ring-label"><div><b>${done}</b><small>de ${total}</small></div></div></div>`;
 }
 
-function pageHome() {
-  const p = mainProduct();
-  const name = firstName(ME.user.name);
-  if (!p) { shell(`<div class="card"><h2>Nenhum conteúdo ativo</h2><p class="muted">Não encontramos uma inscrição ativa no seu e-mail. Se você acabou de comprar, aguarde alguns minutos.</p></div>`, 'home'); return; }
-  const L = p.lessons;
+/** Estado de progresso de um produto (usado na jornada e na vitrine) */
+function progressOf(p) {
+  const L = p.lessons || [];
   const done = L.filter((l) => l.completed).length;
   const current = L.find((l) => l.available && !l.completed);
   const nextLocked = L.find((l) => !l.available);
-  const finished = done === L.length && L.length > 0;
+  return { L, done, total: L.length, current, nextLocked, finished: L.length > 0 && done === L.length, started: L.some((l) => l.watched || l.completed) };
+}
+
+function pageHome(p) {
+  const name = firstName(ME.user.name);
+  if (!p) { shell(`<div class="card"><h2>Nenhum conteúdo ativo</h2><p class="muted">Não encontramos uma inscrição ativa no seu e-mail. Se você acabou de comprar, aguarde alguns minutos.</p></div>`, 'home'); return; }
+  const u = U(p);
+  const { L, done, current, nextLocked, finished } = progressOf(p);
+  const isChallenge = p.hasActivities;
   let cta;
-  if (finished) cta = `<a class="btn btn-gold" href="/resultados" data-link>Ver meus resultados</a>`;
-  else if (current) cta = `<a class="btn btn-gold" href="/dia/${current.number}" data-link>${ICON.play} ${current.watched ? 'Continuar' : 'Começar'} o Dia ${current.number}</a>`;
-  else if (nextLocked?.availableAt) cta = `<span class="lock-note">${ICON.lock.replace('28', '16').replace('28', '16')} Dia ${nextLocked.number} libera em <b data-cd="${nextLocked.availableAt}">${countdown(nextLocked.availableAt)}</b></span>`;
-  else if (nextLocked) cta = `<span class="lock-note">Conclua o dia anterior para liberar o Dia ${nextLocked.number}</span>`;
+  if (finished) cta = p.hasActivities ? `<a class="btn btn-gold" href="${resultsHref(p)}" data-link>Ver meus resultados</a>` : `<a class="btn btn-gold" href="${dayHref(p, L[0].number)}" data-link>Rever o conteúdo</a>`;
+  else if (current) cta = `<a class="btn btn-gold" href="${dayHref(p, current.number)}" data-link>${ICON.play} ${current.watched ? 'Continuar' : 'Começar'} ${u.o} ${u.label} ${current.number}</a>`;
+  else if (nextLocked?.availableAt) cta = `<span class="lock-note">${ICON.lock.replace(/28/g, '16')} ${u.label} ${nextLocked.number} libera em <b data-cd="${nextLocked.availableAt}">${countdown(nextLocked.availableAt)}</b></span>`;
+  else if (nextLocked) cta = `<span class="lock-note">Conclua ${u.anterior} para liberar ${u.o} ${u.label} ${nextLocked.number}</span>`;
 
   const blocks = [];
-  for (const l of L) { const b = l.block || 'Jornada'; let g = blocks.find((x) => x.b === b); if (!g) blocks.push((g = { b, items: [] })); g.items.push(l); }
+  for (const l of L) { const b = l.block || ''; let g = blocks.find((x) => x.b === b); if (!g) blocks.push((g = { b, items: [] })); g.items.push(l); }
   const blockSub = { Coração: 'onde estou', Princípios: 'honra', Patrimônio: 'para onde vou' };
   const dayCard = (l) => {
     const cls = l.completed ? 'is-done' : l.available ? 'is-current' : 'is-locked';
-    const state = l.completed ? `<span class="badge ok">${ICON.check} Concluído</span>`
-      : l.available ? '<span class="badge gold">Liberado</span>'
+    const state = l.completed ? `<span class="badge ok">${ICON.check} ${u.concl[0].toUpperCase() + u.concl.slice(1)}</span>`
+      : l.available ? `<span class="badge gold">${u.lib[0].toUpperCase() + u.lib.slice(1)}</span>`
         : l.availableAt ? `<span class="faint day-state">em <span data-cd="${l.availableAt}">${countdown(l.availableAt)}</span></span>` : `<span class="faint day-state">${ICON.lock.replace(/28/g, '18')}</span>`;
-    const inner = `<div class="day-num">${l.completed ? ICON.check : l.number}</div><div class="day-body"><h4>${esc(l.title)}</h4><p>Dia ${l.number}${l.video_duration ? ` · aula de ${esc(l.video_duration)}` : ''}</p></div>${state}`;
-    return l.available ? `<a class="day ${cls}" href="/dia/${l.number}" data-link>${inner}</a>` : `<div class="day ${cls}" aria-disabled="true">${inner}</div>`;
+    const inner = `<div class="day-num">${l.completed ? ICON.check : l.number}</div><div class="day-body"><h4>${esc(l.title)}</h4><p>${esc(u.label)} ${l.number}${l.video_duration ? ` · ${isChallenge ? 'aula de ' : ''}${esc(l.video_duration)}` : ''}</p></div>${state}`;
+    return l.available ? `<a class="day ${cls}" href="${dayHref(p, l.number)}" data-link>${inner}</a>` : `<div class="day ${cls}" aria-disabled="true">${inner}</div>`;
   };
+  const releaseNote = p.releaseMode === 'after_complete' && L.length > 1 ? `Cada ${u.label.toLowerCase()} libera ${p.releaseDelayHours}h após concluir ${u.anterior}` : p.releaseMode === 'sequential' ? `${u.O}s ${u.label.toLowerCase()}s liberam em sequência` : '';
+  const bonus = isMulti() ? [] : ME.products.filter((x) => x.kind === 'bonus' && x.materials.length);
 
   shell(`
+    ${isMulti() ? `<a class="back no-print" href="/" data-link>${ICON.back} Meus conteúdos</a>` : ''}
     <section class="hero">
+      ${p.cover ? `<div class="hero-cover" style="background-image:url('${esc(p.cover)}')"></div>` : ''}
       <div class="hero-row">${ring(done, L.length)}<div><div class="eyebrow" style="color:var(--gold-300)">${esc(p.name)}</div><h1 style="margin-top:6px">${finished ? `Você concluiu, <em>${esc(name)}</em>.` : `Olá, <em>${esc(name || 'seja bem-vindo')}</em>.`}</h1>
-      <p class="muted" style="margin:6px 0 0">${finished ? 'Que Deus continue a obra que começou em você nestes 7 dias.' : current ? `Hoje: ${esc(current.title)}` : 'Cada dia tem uma aula curta e uma atividade prática.'}</p></div></div>
+      <p class="muted" style="margin:6px 0 0">${finished ? (isChallenge ? `Que Deus continue a obra que começou em você nestes ${L.length} dias.` : 'Parabéns por concluir todo o conteúdo.') : current ? `${isChallenge ? 'Hoje' : 'Agora'}: ${esc(current.title)}` : isChallenge ? 'Cada dia tem uma aula curta e uma atividade prática.' : esc(p.tagline || '')}</p></div></div>
       <div class="hero-cta">${cta || ''}</div>
     </section>
-    ${ME.live && (done >= 6 || finished) ? liveCard(ME.live) : ''}
-    <div class="section-h"><h2>Sua jornada</h2><span class="faint" style="font-size:13px">${p.releaseMode === 'after_complete' ? `Cada dia libera ${p.releaseDelayHours}h após concluir o anterior` : ''}</span></div>
-    ${blocks.map((g) => `<div class="block-label"><span class="eyebrow">${esc(g.b)}${blockSub[g.b] ? ` · ${blockSub[g.b]}` : ''}</span></div><div class="day-list">${g.items.map(dayCard).join('')}</div>`).join('')}
+    ${p.showLive && ME.live && (done >= L.length - 1 || finished) ? liveCard(ME.live) : ''}
+    <div class="section-h"><h2>${isChallenge ? 'Sua jornada' : 'Conteúdo'}</h2><span class="faint" style="font-size:13px">${releaseNote}</span></div>
+    ${blocks.map((g) => `${g.b ? `<div class="block-label"><span class="eyebrow">${esc(g.b)}${blockSub[g.b] ? ` · ${blockSub[g.b]}` : ''}</span></div>` : '<div style="height:6px"></div>'}<div class="day-list">${g.items.map(dayCard).join('')}</div>`).join('')}
+    ${L.length ? '' : '<div class="card"><p class="muted" style="margin:0">O conteúdo deste produto será publicado em breve.</p></div>'}
     <div id="sum"></div>
-    ${ME.products.filter((x) => x.kind === 'bonus' && x.materials.length).map((b) => `<div class="section-h"><h2>${esc(b.name)}</h2></div><div class="card">${b.tagline ? `<p class="muted">${esc(b.tagline)}</p>` : ''}${b.materials.map((m) => `<a class="btn btn-ghost btn-sm" href="${esc(m.url)}" target="_blank" rel="noopener" style="margin:4px 6px 0 0">${esc(m.title)}</a>`).join('')}</div>`).join('')}
+    ${p.materials?.length ? `<div class="section-h"><h2>Materiais</h2></div><div class="card">${p.materials.map((m) => `<a class="btn btn-ghost btn-sm" href="${esc(m.url)}" target="_blank" rel="noopener" style="margin:4px 6px 0 0">${ICON.file} ${esc(m.title)}</a>`).join('')}</div>` : ''}
+    ${bonus.map((b) => `<div class="section-h"><h2>${esc(b.name)}</h2></div><div class="card">${b.tagline ? `<p class="muted">${esc(b.tagline)}</p>` : ''}${b.materials.map((m) => `<a class="btn btn-ghost btn-sm" href="${esc(m.url)}" target="_blank" rel="noopener" style="margin:4px 6px 0 0">${esc(m.title)}</a>`).join('')}</div>`).join('')}
+    ${!isMulti() && ME.store?.length ? storeSection(ME.store) : ''}
     ${installTip()}
   `, 'home');
   tickCountdowns();
   bindInstall();
-  if (done >= 1) loadHomeSummary(p);
+  if (done >= 1 && p.hasActivities) loadHomeSummary(p);
+}
+
+// ---------- vitrine (aluno com mais de um produto) ----------
+const initials = (p) => { const w = (p.shortName || p.name || '').split(/\s+/).filter((x) => x.length > 2 || /^[A-ZÁ-Ú]/.test(x)).filter((x) => !/^(de|da|do|das|dos|e|o|a|os|as|em)$/i.test(x)); return ((w[0]?.[0] || '•') + (w[1]?.[0] || '')).toUpperCase(); };
+function productCard(p) {
+  const pr = progressOf(p);
+  const u = U(p);
+  const vars = varsToStyle(themeVars(p.theme));
+  loadFont(normalizeTheme(p.theme).font);
+  let cta, status = '';
+  if (p.kind === 'bonus') { cta = 'Ver materiais'; status = `${p.materials.length} ${p.materials.length === 1 ? 'material' : 'materiais'}`; }
+  else if (pr.finished) { cta = 'Acessar'; status = `${u.concl[0].toUpperCase() + u.concl.slice(1)} · ${pr.total} de ${pr.total}`; }
+  else if (pr.current) { cta = pr.started ? 'Continuar' : 'Começar'; status = `${u.label} ${pr.current.number} de ${pr.total}`; }
+  else if (pr.nextLocked?.availableAt) { cta = 'Ver jornada'; status = `${u.label} ${pr.nextLocked.number} em <span data-cd="${pr.nextLocked.availableAt}">${countdown(pr.nextLocked.availableAt)}</span>`; }
+  else { cta = 'Acessar'; status = pr.total ? `${pr.done} de ${pr.total}` : 'Em breve'; }
+  const href = `/p/${p.slug}`;
+  const pct = p.kind === 'bonus' || !pr.total ? null : Math.round((pr.done / pr.total) * 100);
+  return `<a class="pcard" href="${href}" data-link style="${vars}">
+    <div class="pcard-cover">${p.cover ? `<img src="${esc(p.cover)}" alt="" loading="lazy">` : `<div class="pcard-art">${p.logo ? `<img class="pcard-logo" src="${esc(p.logo)}" alt="">` : `<span class="pcard-mono">${esc(initials(p))}</span>`}</div>`}
+      <span class="pcard-kind">${esc(p.badge || KIND_LABEL[p.kind])}</span>${pr.finished ? `<span class="pcard-done">${ICON.check}</span>` : ''}</div>
+    <div class="pcard-body">
+      <h3>${esc(p.name)}</h3>${p.tagline ? `<p>${esc(p.tagline)}</p>` : ''}
+      ${pct !== null ? `<div class="pcard-progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>` : ''}
+      <div class="pcard-foot"><span class="pcard-status">${status}</span><span class="pcard-cta">${esc(cta)} ${ICON.arrow}</span></div>
+      ${p.expiresAt ? `<div class="pcard-exp">Acesso até ${fmtDate(p.expiresAt)}</div>` : ''}
+    </div></a>`;
+}
+function storeCard(p) {
+  const vars = varsToStyle(themeVars(p.theme));
+  loadFont(normalizeTheme(p.theme).font);
+  const inner = `<div class="pcard-cover">${p.cover ? `<img src="${esc(p.cover)}" alt="" loading="lazy">` : `<div class="pcard-art">${p.logo ? `<img class="pcard-logo" src="${esc(p.logo)}" alt="">` : `<span class="pcard-mono">${esc(initials(p))}</span>`}</div>`}
+      <span class="pcard-kind">${esc(p.badge || KIND_LABEL[p.kind])}</span><span class="pcard-lock">${ICON.lock.replace(/28/g, '16')}</span></div>
+    <div class="pcard-body"><h3>${esc(p.name)}</h3>${p.tagline ? `<p>${esc(p.tagline)}</p>` : ''}
+      <div class="pcard-foot"><span class="pcard-status">${p.lessonsCount ? `${p.lessonsCount} ${esc(U(p).label.toLowerCase())}${p.lessonsCount > 1 ? 's' : ''}` : ''}</span><span class="pcard-cta">${p.salesUrl ? 'Quero conhecer' : 'Em breve'} ${p.salesUrl ? ICON.arrow : ''}</span></div></div>`;
+  return p.salesUrl ? `<a class="pcard is-store" href="${esc(p.salesUrl)}" target="_blank" rel="noopener" style="${vars}">${inner}</a>` : `<div class="pcard is-store" style="${vars}">${inner}</div>`;
+}
+function storeSection(store) {
+  return `<div class="section-h"><h2>Conheça também</h2></div><div class="pgrid">${store.map(storeCard).join('')}</div>`;
+}
+
+function pageStore() {
+  const name = firstName(ME.user.name);
+  const own = [...ME.products].sort((a, b) => {
+    const rank = (p) => { const pr = progressOf(p); return p.kind === 'bonus' ? 3 : pr.finished ? 2 : pr.started ? 0 : 1; };
+    return rank(a) - rank(b);
+  });
+  const resume = own.find((p) => p.kind !== 'bonus' && progressOf(p).started && !progressOf(p).finished && progressOf(p).current);
+  shell(`
+    <section class="store-hero">
+      <div class="eyebrow">Área de membros</div>
+      <h1>Olá, <em>${esc(name || 'seja bem-vindo')}</em>.</h1>
+      <p class="muted">Seus conteúdos estão aqui. Escolha por onde quer continuar.</p>
+      ${resume ? `<a class="resume" href="${dayHref(resume, progressOf(resume).current.number)}" data-link style="${varsToStyle(themeVars(resume.theme))}">
+        <span class="resume-ico">${ICON.play}</span><span class="resume-txt"><small>Continue de onde parou</small><b>${esc(resume.shortName || resume.name)} · ${esc(U(resume).label)} ${progressOf(resume).current.number}</b><span>${esc(progressOf(resume).current.title)}</span></span>${ICON.arrow}</a>` : ''}
+    </section>
+    <div class="section-h"><h2>Meus conteúdos</h2><span class="faint" style="font-size:13px">${own.length} ${own.length === 1 ? 'produto' : 'produtos'}</span></div>
+    <div class="pgrid">${own.map(productCard).join('')}</div>
+    ${ME.store?.length ? storeSection(ME.store) : ''}
+    ${installTip()}
+  `, 'store', { wide: true });
+  tickCountdowns();
+  bindInstall();
+}
+
+function pageBonus(p) {
+  shell(`
+    ${isMulti() ? `<a class="back" href="/" data-link>${ICON.back} Meus conteúdos</a>` : ''}
+    <section class="hero">${p.cover ? `<div class="hero-cover" style="background-image:url('${esc(p.cover)}')"></div>` : ''}<div class="eyebrow" style="color:var(--gold-300)">${esc(p.badge || 'Material')}</div><h1 style="margin-top:6px">${esc(p.name)}</h1>${p.tagline ? `<p class="muted" style="margin:8px 0 0">${esc(p.tagline)}</p>` : ''}</section>
+    <div class="section-h"><h2>Materiais</h2></div>
+    <div class="stack">${p.materials.length ? p.materials.map((m) => `<a class="material" href="${esc(m.url)}" target="_blank" rel="noopener"><span class="material-ico">${ICON.file}</span><span><b>${esc(m.title)}</b><small>Abrir em nova aba</small></span>${ICON.arrow}</a>`).join('') : '<div class="card"><p class="muted" style="margin:0">Os materiais serão publicados em breve.</p></div>'}</div>
+    ${installTip()}
+  `, 'home');
+  bindInstall();
+}
+
+function pageNotOwned(slug) {
+  setContext(null);
+  const st = ME.store?.find((x) => x.slug === slug);
+  shell(`<div class="locked-page"><div class="ico">${ICON.lock}</div><h1 style="font-size:30px">${st ? esc(st.name) : 'Conteúdo indisponível'}</h1>
+    <p class="muted" style="margin-top:12px">${st ? 'Este conteúdo ainda não faz parte da sua conta.' : 'Você não tem acesso a este conteúdo, ou ele não está mais disponível.'}</p>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">${st?.salesUrl ? `<a class="btn btn-gold" href="${esc(st.salesUrl)}" target="_blank" rel="noopener">Quero conhecer</a>` : ''}<a class="btn btn-primary" href="/" data-link>Ir para meus conteúdos</a></div></div>`, 'store');
 }
 
 async function loadHomeSummary(p) {
@@ -200,7 +334,7 @@ async function loadHomeSummary(p) {
     if (c.fase) items.push(['Minha fase', `Fase ${c.fase}`, '']);
     else if (r.answers[1]) items.push(['Paz com o dinheiro', `${c.pazD1 ?? '—'}/10`, '']);
     if (!items.length) return;
-    $('#sum').innerHTML = `<div class="section-h"><h2>Seus números</h2><a href="/resultados" data-link style="font-size:14px;font-weight:700">Ver tudo →</a></div><div class="grid-3">${items.map(([l, v, cls]) => `<div class="metric"><div class="label">${l}</div><div class="val ${cls}">${v}</div></div>`).join('')}</div>`;
+    $('#sum').innerHTML = `<div class="section-h"><h2>Seus números</h2><a href="${resultsHref(p)}" data-link style="font-size:14px;font-weight:700">Ver tudo →</a></div><div class="grid-3">${items.map(([l, v, cls]) => `<div class="metric"><div class="label">${l}</div><div class="val ${cls}">${v}</div></div>`).join('')}</div>`;
   } catch { /* silencioso */ }
 }
 
@@ -226,16 +360,17 @@ function tickCountdowns() {
 }
 
 // ---------- página do dia ----------
-async function pageDay(n) {
-  const p = mainProduct();
+async function pageDay(p, n) {
+  const u = U(p);
+  const home = productHref(p);
   shell('<div class="skeleton" style="height:42px;width:60%"></div><div class="skeleton" style="height:320px;margin-top:20px"></div>', 'home');
   let d;
   try { d = await api(`/api/app/p/${p.slug}/day/${n}`); }
-  catch (e) { shell(`<div class="card"><h2>Não foi possível abrir</h2><p class="muted">${esc(e.message)}</p><a class="btn btn-primary" href="/" data-link>Voltar</a></div>`, 'home'); return; }
+  catch (e) { shell(`<div class="card"><h2>Não foi possível abrir</h2><p class="muted">${esc(e.message)}</p><a class="btn btn-primary" href="${home}" data-link>Voltar</a></div>`, 'home'); return; }
 
   if (d.locked) {
-    shell(`<a class="back" href="/" data-link>${ICON.back} Jornada</a><div class="locked-page"><div class="ico">${ICON.lock}</div><div class="eyebrow">Dia ${n}</div><h1 style="font-size:32px;margin-top:8px">${esc(d.lesson.title)}</h1>
-      ${d.state.availableAt ? `<p class="muted" style="margin-top:14px">Este dia é liberado em</p><div class="countdown-big" data-cd="${d.state.availableAt}">${countdown(d.state.availableAt)}</div><p class="faint">Use esse tempo para colocar em prática o que você aprendeu.</p>` : `<p class="muted" style="margin-top:14px">Conclua o Dia ${n - 1} para liberar este conteúdo.</p><a class="btn btn-primary" href="/dia/${n - 1}" data-link>Ir para o Dia ${n - 1}</a>`}</div>`, 'home');
+    shell(`<a class="back" href="${home}" data-link>${ICON.back} ${p.hasActivities ? 'Jornada' : 'Conteúdo'}</a><div class="locked-page"><div class="ico">${ICON.lock}</div><div class="eyebrow">${esc(u.label)} ${n}</div><h1 style="font-size:32px;margin-top:8px">${esc(d.lesson.title)}</h1>
+      ${d.state.availableAt ? `<p class="muted" style="margin-top:14px">${u.este} ${esc(u.label.toLowerCase())} é ${u.lib} em</p><div class="countdown-big" data-cd="${d.state.availableAt}">${countdown(d.state.availableAt)}</div><p class="faint">Use esse tempo para colocar em prática o que você aprendeu.</p>` : `<p class="muted" style="margin-top:14px">Conclua ${u.anterior} para liberar este conteúdo.</p><a class="btn btn-primary" href="${home}" data-link>Voltar</a>`}</div>`, 'home');
     tickCountdowns();
     return;
   }
@@ -243,12 +378,12 @@ async function pageDay(n) {
   const L = d.lesson, st = d.state;
   // YouTube → player próprio; outros provedores → incorporação padrão
   const own1 = youtubeId(L.video_url), own2 = youtubeId(L.practice_video_url);
-  const v1 = own1 ? `<div id="pp1"></div>` : videoEmbed(L.video_url, `Aula do Dia ${n}`);
-  const v2 = own2 ? `<div id="pp2"></div>` : videoEmbed(L.practice_video_url, `Prática do Dia ${n}`);
+  const v1 = own1 ? `<div id="pp1"></div>` : videoEmbed(L.video_url, `${u.label} ${n}`);
+  const v2 = own2 ? `<div id="pp2"></div>` : videoEmbed(L.practice_video_url, `Prática · ${u.label} ${n}`);
   const player = (html, label) => (html && html.startsWith('<div id="pp') ? html : `<div class="player">${html || `<div class="player-empty"><div><b>${label}</b>O vídeo será publicado em breve.</div></div>`}</div>`);
   shell(`
-    <a class="back no-print" href="/" data-link>${ICON.back} Jornada</a>
-    <header class="day-head"><div class="eyebrow">Dia ${n} de 7 ${L.block ? `<span class="badge" style="letter-spacing:0;text-transform:none">${esc(L.block)}</span>` : ''}</div>
+    <a class="back no-print" href="${home}" data-link>${ICON.back} ${p.hasActivities ? 'Jornada' : 'Conteúdo'}</a>
+    <header class="day-head"><div class="eyebrow">${esc(u.label)} ${n} de ${d.product?.total || p.lessons.length} ${L.block ? `<span class="badge" style="letter-spacing:0;text-transform:none">${esc(L.block)}</span>` : ''}</div>
       <h1>${esc(L.title)}</h1>${L.subtitle ? `<p>${esc(L.subtitle)}</p>` : ''}
       <div class="steps" id="steps"><span></span><span></span><span></span></div></header>
 
@@ -279,12 +414,12 @@ async function pageDay(n) {
   };
   const markBtn = (sel, label, stepSel) => { const b = $(sel); if (b) { b.innerHTML = `${ICON.check} ${label}`; b.disabled = true; } $(stepSel)?.classList.add('done'); };
   if (own1) {
-    const pl = mountPlayer($('#pp1'), { url: L.video_url, cover: L.cover_url, title: `Dia ${n} · ${L.title}`, storageKey: `${ME.user.id}:${p.slug}:${n}:aula`,
+    const pl = mountPlayer($('#pp1'), { url: L.video_url, cover: L.cover_url, title: `${u.label} ${n} · ${L.title}`, storageKey: `${ME.user.id}:${p.slug}:${n}:aula`,
       onWatched: async () => { if (st.watched) return; try { await progress('watched'); markBtn('#w1', 'Aula assistida', '#s1'); } catch { /* */ } } });
     if (pl) cleanups.push(() => pl.destroy());
   }
   if (own2) {
-    const pl = mountPlayer($('#pp2'), { url: L.practice_video_url, cover: L.practice_cover_url, title: `Prática do Dia ${n}`, storageKey: `${ME.user.id}:${p.slug}:${n}:pratica`,
+    const pl = mountPlayer($('#pp2'), { url: L.practice_video_url, cover: L.practice_cover_url, title: `Prática · ${u.label} ${n}`, storageKey: `${ME.user.id}:${p.slug}:${n}:pratica`,
       onWatched: async () => { if (st.practiceWatched) return; try { await progress('practice'); markBtn('#w2', 'Prática assistida', '#s2'); } catch { /* */ } } });
     if (pl) cleanups.push(() => pl.destroy());
   }
@@ -320,12 +455,15 @@ async function pageDay(n) {
     const fin = $('#finish');
     if (st.completed) {
       const nx = d.next;
-      fin.innerHTML = `<div class="eyebrow" style="color:var(--gold-300)">Dia ${n} concluído</div><h3 style="margin-top:8px">${n === 7 ? 'Você chegou ao fim do desafio.' : 'Que Deus confirme em você o que ouviu hoje.'}</h3>
+      const last = !nx;
+      fin.innerHTML = `<div class="eyebrow" style="color:var(--gold-300)">${esc(u.label)} ${n} ${u.concl}</div><h3 style="margin-top:8px">${last ? (p.hasActivities ? 'Você chegou ao fim do desafio.' : 'Você concluiu todo o conteúdo.') : p.hasActivities ? 'Que Deus confirme em você o que ouviu hoje.' : 'Mais um passo dado.'}</h3>
         ${L.tomorrow ? `<p style="margin-top:10px">${esc(L.tomorrow)}</p>` : ''}
-        ${nx ? (nx.available ? `<a class="btn btn-gold" href="/dia/${nx.number}" data-link>Ir para o Dia ${nx.number}</a>` : nx.availableAt ? `<p>O Dia ${nx.number} libera em <b data-cd="${nx.availableAt}">${countdown(nx.availableAt)}</b>. Você recebe um aviso por e-mail.</p><a class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.3)" href="/" data-link>Voltar para a jornada</a>` : '') : `<a class="btn btn-gold" href="/resultados" data-link>Ver o meu antes e depois</a>`}`;
+        ${nx ? (nx.available ? `<a class="btn btn-gold" href="${dayHref(p, nx.number)}" data-link>Ir para ${u.o} ${esc(u.label)} ${nx.number}</a>` : nx.availableAt ? `<p>${u.O} ${esc(u.label)} ${nx.number} libera em <b data-cd="${nx.availableAt}">${countdown(nx.availableAt)}</b>. Você recebe um aviso por e-mail.</p><a class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.3)" href="${home}" data-link>Voltar para ${p.hasActivities ? 'a jornada' : 'o conteúdo'}</a>` : '') : p.hasActivities ? `<a class="btn btn-gold" href="${resultsHref(p)}" data-link>Ver o meu antes e depois</a>` : `<a class="btn btn-gold" href="${isMulti() ? '/' : home}" data-link>${isMulti() ? 'Voltar para meus conteúdos' : 'Voltar ao início'}</a>`}`;
       tickCountdowns();
     } else {
-      fin.innerHTML = `<h3>Terminou a aula e a atividade?</h3><p>Ao concluir, o próximo dia é liberado em ${d.delayHours || 24} horas.</p><button class="btn btn-gold" id="complete">Concluir o Dia ${n}</button>`;
+      const isLast = !d.next;
+      const nextNote = isLast ? '' : d.product?.releaseMode === 'after_complete' ? `Ao concluir, ${u.o} próxim${u.o} ${esc(u.label.toLowerCase())} é ${u.lib} em ${d.delayHours || 24} horas.` : d.product?.releaseMode === 'sequential' ? `Ao concluir, ${u.o} próxim${u.o} ${esc(u.label.toLowerCase())} é ${u.lib} na hora.` : '';
+      fin.innerHTML = `<h3>${L.activity_key ? 'Terminou a aula e a atividade?' : 'Terminou esta aula?'}</h3>${nextNote ? `<p>${nextNote}</p>` : ''}<button class="btn btn-gold" id="complete">Concluir ${u.o} ${esc(u.label)} ${n}</button>`;
       $('#complete').addEventListener('click', async (e) => {
         if (act) {
           const miss = act.missing();
@@ -337,7 +475,7 @@ async function pageDay(n) {
             if (!st.watched) await progress('watched');
             const r = await progress('complete'); d.next = r.next ? { ...d.next, ...r.next } : null;
             renderFinish(); $('#s3')?.classList.add('done');
-            celebrate(n);
+            celebrate(p, n, !d.next);
             loadMe();
           } catch (err) { toast(err.message, { error: true }); }
         });
@@ -347,13 +485,18 @@ async function pageDay(n) {
   renderFinish();
 }
 
-function celebrate(n) {
-  modal({ eyebrow: `Dia ${n} concluído`, title: n === 7 ? 'Glória a Deus! Você concluiu os 7 dias.' : 'Mais um passo dado.', body: `<p class="muted">${n === 7 ? 'Veja agora o seu antes e depois e o seu Plano de Patrimônio completo.' : 'Volte amanhã: vamos te avisar por e-mail assim que o próximo dia for liberado.'}</p><button class="btn btn-primary btn-block" data-close>${n === 7 ? 'Continuar' : 'Amém'}</button>` });
+function celebrate(p, n, last) {
+  const u = U(p);
+  if (p.hasActivities) {
+    modal({ eyebrow: `${u.label} ${n} ${u.concl}`, title: last ? `Glória a Deus! Você concluiu os ${p.lessons.length} dias.` : 'Mais um passo dado.', body: `<p class="muted">${last ? 'Veja agora o seu antes e depois e o seu Plano de Patrimônio completo.' : `Volte amanhã: vamos te avisar por e-mail assim que ${u.o} próxim${u.o} ${u.label.toLowerCase()} for ${u.lib}.`}</p><button class="btn btn-primary btn-block" data-close>${last ? 'Continuar' : 'Amém'}</button>` });
+  } else {
+    modal({ eyebrow: `${u.label} ${n} ${u.concl}`, title: last ? 'Parabéns! Você concluiu todo o conteúdo.' : 'Mais um passo dado.', body: `<p class="muted">${last ? 'Você pode rever qualquer aula quando quiser.' : `Siga para ${u.o} próxim${u.o} ${u.label.toLowerCase()} quando estiver ${u.lib}.`}</p><button class="btn btn-primary btn-block" data-close>Continuar</button>` });
+  }
 }
 
 // ---------- resultados ----------
-async function pageResults() {
-  const p = mainProduct();
+async function pageResults(p) {
+  if (!p.hasActivities) return go(productHref(p), true);
   shell('<div class="skeleton" style="height:300px"></div>', 'results');
   const r = await api(`/api/app/p/${p.slug}/results`);
   const a = r.answers; setCurrency(a[1]?.moeda); const c = compute(a, ME.settings.rules);

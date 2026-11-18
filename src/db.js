@@ -279,6 +279,21 @@ const migrations = [
   ALTER TABLE lessons ADD COLUMN cover_url TEXT;
   ALTER TABLE lessons ADD COLUMN practice_cover_url TEXT;
   `,
+  // 4 — multiproduto: identidade visual, vitrine e rótulos por produto
+  `
+  ALTER TABLE products ADD COLUMN theme TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE products ADD COLUMN logo_url TEXT;
+  ALTER TABLE products ADD COLUMN cover_url TEXT;
+  ALTER TABLE products ADD COLUMN short_name TEXT;
+  ALTER TABLE products ADD COLUMN mentor TEXT;
+  ALTER TABLE products ADD COLUMN unit_label TEXT NOT NULL DEFAULT 'Dia';
+  ALTER TABLE products ADD COLUMN show_live INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE products ADD COLUMN sales_url TEXT;
+  ALTER TABLE products ADD COLUMN show_in_store INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE products ADD COLUMN badge TEXT;
+  UPDATE products SET show_live = 1, short_name = 'Caminho Bíblico', mentor = 'Rhus Moreira' WHERE slug = 'desafio-7-dias';
+  UPDATE products SET unit_label = 'Material', short_name = 'Casa em Ordem' WHERE slug = 'guia-casa-em-ordem';
+  `,
 ];
 
 export function migrate() {

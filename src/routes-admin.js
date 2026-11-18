@@ -2,7 +2,7 @@ import { db, now, getSettings, setSettings } from './db.js';
 import { fail, rateLimit } from './http.js';
 import { config } from './config.js';
 import { createSession, destroySession, requireAdmin, verifyPassword, hashPassword, validatePassword, randomToken } from './auth.js';
-import { upsertUser, grantAccess, revokeAccess, sendAccessEmail, normEmail, isEmail, jparse, lessonStates, loadAnswers, refreshSummary, nextLive, audit, rulesFromSettings } from './services.js';
+import { upsertUser, grantAccess, revokeAccess, sendAccessEmail, sendProductAccessEmail, normEmail, isEmail, jparse, lessonStates, loadAnswers, refreshSummary, nextLive, audit, rulesFromSettings } from './services.js';
 import { reprocessWebhook, handleWebhook } from './greenn.js';
 import { sendEmail, emailLayout } from './mailer.js';
 import { flushOutbox } from './events.js';
@@ -104,16 +104,16 @@ export function registerAdminRoutes(r) {
     const u = db.get('SELECT * FROM users WHERE id = ?', Number(req.params.id));
     if (!u) fail(404, 'Aluno não encontrado.');
     const enrollments = db.all('SELECT e.*, p.name pname, p.slug, p.kind FROM enrollments e JOIN products p ON p.id = e.product_id WHERE e.user_id = ? ORDER BY p.position', u.id);
-    const journeys = enrollments.filter((e) => e.kind === 'challenge').map((e) => {
+    const journeys = enrollments.filter((e) => e.kind !== 'bonus').map((e) => {
       const product = db.get('SELECT * FROM products WHERE id = ?', e.product_id);
       const lessons = db.all('SELECT * FROM lessons WHERE product_id = ? ORDER BY number', product.id);
       const answers = loadAnswers(u.id, product.id);
-      return { product: { id: product.id, name: product.name, slug: product.slug }, states: lessonStates(u.id, product, e, lessons).map((s, i) => ({ ...s, title: lessons[i].title })), answers, computed: compute(answers, rulesFromSettings()) };
+      return { product: { id: product.id, name: product.name, slug: product.slug, kind: product.kind, unitLabel: product.unit_label || 'Dia' }, hasActivities: lessons.some((l) => l.activity_key), status: e.status, states: lessonStates(u.id, product, e, lessons).map((s, i) => ({ ...s, title: lessons[i].title })), answers, computed: compute(answers, rulesFromSettings()) };
     });
     const sales = db.all('SELECT * FROM sales WHERE user_id = ? OR email = ? ORDER BY created_at DESC', u.id, u.email);
     const notifications = db.all('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 30', u.id);
     const { password_hash, ...safe } = u;
-    return { user: { ...safe, has_password: !!password_hash }, enrollments, journeys, sales, notifications, products: db.all('SELECT id, name, kind FROM products ORDER BY position') };
+    return { user: { ...safe, has_password: !!password_hash }, enrollments, journeys, sales, notifications, products: db.all('SELECT id, name, kind, theme, access_days, active FROM products ORDER BY position, id').map((x) => ({ ...x, theme: jparse(x.theme, {}) })) };
   });
 
   r.post('/api/admin/students', async (req) => {
@@ -145,11 +145,26 @@ export function registerAdminRoutes(r) {
     return { ok: true };
   });
 
-  r.post('/api/admin/students/:id/grant', (req) => {
+  r.post('/api/admin/students/:id/grant', async (req) => {
     requireAdmin(req, 'support');
-    grantAccess(Number(req.params.id), Number(req.body.product_id), { source: 'manual' });
-    audit(req, 'access.grant', req.params.id, { product: req.body.product_id });
-    return { ok: true };
+    const user = db.get('SELECT * FROM users WHERE id = ?', Number(req.params.id));
+    const product = db.get('SELECT * FROM products WHERE id = ?', Number(req.body.product_id));
+    if (!user || !product) fail(404, 'Aluno ou produto não encontrado.');
+    let expiresAt;
+    if (req.body.expires_at !== undefined) {
+      if (req.body.expires_at === '' || req.body.expires_at === null) expiresAt = null;
+      else {
+        const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(req.body.expires_at) ? `${req.body.expires_at}T23:59:59-03:00` : req.body.expires_at);
+        if (Number.isNaN(d.getTime())) fail(400, 'Data de validade inválida.');
+        if (d.getTime() < Date.now()) fail(400, 'A validade precisa ser uma data futura.');
+        expiresAt = d.toISOString();
+      }
+    }
+    const r0 = grantAccess(user.id, product.id, { source: 'manual', expiresAt });
+    let email = null;
+    if (req.body.notify && r0.activated) email = (await sendProductAccessEmail(db.get('SELECT * FROM users WHERE id = ?', user.id), product)).status;
+    audit(req, 'access.grant', user.id, { product: product.id, expires_at: expiresAt ?? 'padrão', notify: !!req.body.notify });
+    return { ok: true, activated: r0.activated, email };
   });
   r.post('/api/admin/students/:id/revoke', (req) => {
     requireAdmin(req, 'support');
@@ -307,22 +322,37 @@ export function registerAdminRoutes(r) {
   // ---------- produtos e conteúdo ----------
   r.get('/api/admin/products', (req) => {
     requireAdmin(req);
-    return { rows: db.all(`SELECT p.*, (SELECT COUNT(*) FROM lessons l WHERE l.product_id = p.id) lessons, (SELECT COUNT(*) FROM enrollments e WHERE e.product_id = p.id AND e.status = 'active') students FROM products p ORDER BY position, id`).map((p) => ({ ...p, materials: jparse(p.materials, []) })) };
+    return { rows: db.all(`SELECT p.*, (SELECT COUNT(*) FROM lessons l WHERE l.product_id = p.id) lessons, (SELECT COUNT(*) FROM enrollments e WHERE e.product_id = p.id AND e.status = 'active' AND (e.expires_at IS NULL OR e.expires_at > datetime('now'))) students FROM products p ORDER BY position, id`).map((p) => ({ ...p, materials: jparse(p.materials, []), theme_obj: jparse(p.theme, {}) })) };
   });
+  // Campos do produto (identidade visual incluída). Ordem = colunas de PRODUCT_COLS.
+  const PRODUCT_COLS = ['slug', 'name', 'kind', 'tagline', 'description', 'greenn_ids', 'release_mode', 'release_delay_hours', 'access_days', 'materials', 'position', 'active',
+    'theme', 'short_name', 'mentor', 'unit_label', 'show_live', 'sales_url', 'show_in_store', 'badge'];
+  const HEX = /^#[0-9a-f]{6}$/i;
   const productFields = (b, cur = {}) => {
-    const slug = String(b.slug ?? cur.slug ?? '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
+    const pick = (k, d = '') => (b[k] !== undefined ? b[k] : cur[k] !== undefined && cur[k] !== null ? cur[k] : d);
+    const bool = (k, d = 0) => (b[k] === undefined ? (cur[k] ?? d) : (b[k] === true || b[k] === 'true' || b[k] === 1 || b[k] === '1' || b[k] === 'on' ? 1 : 0));
+    const slug = String(pick('slug')).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
     if (!slug) fail(400, 'Informe um identificador (slug).');
-    if (!String(b.name ?? cur.name ?? '').trim()) fail(400, 'Informe o nome.');
-    return [slug, b.name ?? cur.name, b.kind ?? cur.kind ?? 'challenge', b.tagline ?? cur.tagline ?? '', b.description ?? cur.description ?? '',
-      String(b.greenn_ids ?? cur.greenn_ids ?? '').split(/[\s,;]+/).filter(Boolean).join(','), b.release_mode ?? cur.release_mode ?? 'after_complete',
-      Number(b.release_delay_hours ?? cur.release_delay_hours ?? 24), b.access_days === '' || b.access_days === null ? null : Number(b.access_days ?? cur.access_days) || null,
-      JSON.stringify(b.materials ?? jparse(cur.materials, [])), Number(b.position ?? cur.position ?? 0), b.active === undefined ? (cur.active ?? 1) : (b.active ? 1 : 0)];
+    if (!String(pick('name')).trim()) fail(400, 'Informe o nome.');
+    if (!['challenge', 'course', 'bonus'].includes(pick('kind', 'challenge'))) fail(400, 'Tipo de produto inválido.');
+    if (!['after_complete', 'drip', 'sequential', 'open'].includes(pick('release_mode', 'after_complete'))) fail(400, 'Modo de liberação inválido.');
+    let theme = b.theme !== undefined ? b.theme : jparse(cur.theme, {});
+    if (typeof theme === 'string') theme = jparse(theme, {});
+    theme = Object.fromEntries(Object.entries(theme || {}).filter(([k, v]) => (['primary', 'accent', 'secondary'].includes(k) && HEX.test(v)) || (k === 'font' && typeof v === 'string' && v.length < 40)));
+    const salesUrl = String(pick('sales_url') || '').trim();
+    if (salesUrl && !/^https?:\/\/\S+$/i.test(salesUrl)) fail(400, 'O link da página de vendas precisa começar com https://');
+    const accessDays = b.access_days === '' || b.access_days === null ? null : Number(pick('access_days', null)) || null;
+    return [slug, String(pick('name')).trim(), pick('kind', 'challenge'), pick('tagline'), pick('description'),
+      String(pick('greenn_ids')).split(/[\s,;]+/).filter(Boolean).join(','), pick('release_mode', 'after_complete'),
+      Number(pick('release_delay_hours', 24)), accessDays, JSON.stringify(b.materials ?? jparse(cur.materials, [])), Number(pick('position', 0)), bool('active', 1),
+      JSON.stringify(theme), String(pick('short_name') || '').trim() || null, String(pick('mentor') || '').trim() || null, String(pick('unit_label', 'Dia') || 'Dia').trim().slice(0, 20),
+      bool('show_live', 0), salesUrl || null, bool('show_in_store', 0), String(pick('badge') || '').trim().slice(0, 24) || null];
   };
   r.post('/api/admin/products', (req) => {
     requireAdmin(req, 'admin');
     const f = productFields(req.body);
     if (db.get('SELECT 1 FROM products WHERE slug = ?', f[0])) fail(400, 'Já existe um produto com este identificador.');
-    const res0 = db.run(`INSERT INTO products (slug, name, kind, tagline, description, greenn_ids, release_mode, release_delay_hours, access_days, materials, position, active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, ...f, now(), now());
+    const res0 = db.run(`INSERT INTO products (${PRODUCT_COLS.join(', ')}, created_at, updated_at) VALUES (${PRODUCT_COLS.map(() => '?').join(',')},?,?)`, ...f, now(), now());
     audit(req, 'product.create', res0.lastInsertRowid, { slug: f[0] });
     return { ok: true, id: Number(res0.lastInsertRowid) };
   });
@@ -332,8 +362,49 @@ export function registerAdminRoutes(r) {
     if (!cur) fail(404, 'Produto não encontrado.');
     const f = productFields(req.body, cur);
     if (db.get('SELECT 1 FROM products WHERE slug = ? AND id <> ?', f[0], cur.id)) fail(400, 'Já existe um produto com este identificador.');
-    db.run(`UPDATE products SET slug=?, name=?, kind=?, tagline=?, description=?, greenn_ids=?, release_mode=?, release_delay_hours=?, access_days=?, materials=?, position=?, active=?, updated_at=? WHERE id = ?`, ...f, now(), cur.id);
+    db.run(`UPDATE products SET ${PRODUCT_COLS.map((c) => `${c}=?`).join(', ')}, updated_at=? WHERE id = ?`, ...f, now(), cur.id);
     audit(req, 'product.update', cur.id, { greenn_ids: f[5] });
+    return { ok: true };
+  });
+  // Logo e capa da vitrine
+  const decodeImage = (data) => {
+    const m = String(data || '').match(/^data:(image\/(?:jpeg|png|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/);
+    if (!m) fail(400, 'Envie uma imagem JPG, PNG, WebP ou SVG.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 5 * 1024 * 1024) fail(413, 'Imagem muito grande. O máximo é 5 MB.');
+    let kind = buf[0] === 0xff && buf[1] === 0xd8 ? 'jpg' : buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? 'png' : buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'WEBP' ? 'webp' : null;
+    if (!kind && m[1] === 'image/svg+xml') {
+      const txt = buf.toString('utf8');
+      if (!/<svg[\s>]/i.test(txt) || /<script|on\w+\s*=|javascript:|<foreignObject|xlink:href\s*=\s*["']https?:/i.test(txt)) fail(400, 'SVG inválido ou com conteúdo não permitido.');
+      kind = 'svg';
+    }
+    if (!kind) fail(400, 'O arquivo não é uma imagem válida.');
+    return { buf, kind };
+  };
+  r.post('/api/admin/products/:id/image', (req) => {
+    requireAdmin(req, 'admin');
+    const p = db.get('SELECT * FROM products WHERE id = ?', Number(req.params.id));
+    if (!p) fail(404, 'Produto não encontrado.');
+    const col = req.body.target === 'logo' ? 'logo_url' : 'cover_url';
+    const { buf, kind } = decodeImage(req.body.data);
+    const dir = path.join(config.dataDir, 'uploads', 'products');
+    fs.mkdirSync(dir, { recursive: true });
+    const name = `produto-${p.id}-${col === 'logo_url' ? 'logo' : 'capa'}-${crypto.createHash('sha256').update(buf).digest('hex').slice(0, 12)}.${kind}`;
+    fs.writeFileSync(path.join(dir, name), buf);
+    const old = p[col];
+    db.run(`UPDATE products SET ${col} = ?, updated_at = ? WHERE id = ?`, `/media/products/${name}`, now(), p.id);
+    if (old && old.startsWith('/media/products/') && old !== `/media/products/${name}`) fs.rm(path.join(dir, path.basename(old)), { force: true }, () => {});
+    audit(req, 'product.image', p.id, { target: col });
+    return { ok: true, url: `/media/products/${name}` };
+  });
+  r.delete('/api/admin/products/:id/image', (req) => {
+    requireAdmin(req, 'admin');
+    const p = db.get('SELECT * FROM products WHERE id = ?', Number(req.params.id));
+    if (!p) fail(404, 'Produto não encontrado.');
+    const col = req.query.target === 'logo' ? 'logo_url' : 'cover_url';
+    if (p[col]?.startsWith('/media/products/')) fs.rm(path.join(config.dataDir, 'uploads', 'products', path.basename(p[col])), { force: true }, () => {});
+    db.run(`UPDATE products SET ${col} = NULL, updated_at = ? WHERE id = ?`, now(), p.id);
+    audit(req, 'product.image.remove', p.id, { target: col });
     return { ok: true };
   });
   r.get('/api/admin/products/:id/lessons', (req) => {

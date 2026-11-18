@@ -64,7 +64,7 @@ p { margin: 0 0 .8em; }
 .btn[disabled], .btn.is-loading { opacity: .55; pointer-events: none; }
 .btn-primary { background: var(--ink-900); color: #fff; box-shadow: 0 8px 20px -10px rgba(11, 26, 42, .7); }
 .btn-primary:hover { background: var(--ink-800); }
-.btn-gold { background: linear-gradient(180deg, #D7B672, var(--gold-500)); color: var(--ink-950); box-shadow: 0 10px 24px -12px rgba(169, 133, 63, .9), inset 0 1px 0 rgba(255,255,255,.35); }
+.btn-gold { background: linear-gradient(180deg, color-mix(in srgb, var(--gold-500) 85%, #fff), var(--gold-500)); color: var(--on-gold, var(--ink-950)); box-shadow: 0 10px 24px -12px color-mix(in srgb, var(--gold-600) 90%, transparent), inset 0 1px 0 rgba(255,255,255,.35); }
 .btn-gold:hover { filter: brightness(1.04); }
 .btn-ghost { background: transparent; border-color: var(--line-strong); color: var(--ink-900); }
 .btn-ghost:hover { background: var(--paper); }
@@ -84,7 +84,7 @@ p { margin: 0 0 .8em; }
   width: 100%; border: 1px solid var(--line-strong); background: #fff; border-radius: 12px; padding: 12px 14px; font-size: 15px; transition: border-color .15s, box-shadow .15s; appearance: none;
 }
 textarea.input { min-height: 96px; resize: vertical; line-height: 1.5; }
-.input:focus { outline: none; border-color: var(--gold-500); box-shadow: 0 0 0 4px rgba(201, 164, 92, .18); }
+.input:focus { outline: none; border-color: var(--gold-500); box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold-500) 18%, transparent); }
 .input::placeholder { color: #A7AFB6; }
 select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%234A5A68' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
 .input-money { position: relative; }

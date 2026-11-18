@@ -180,12 +180,26 @@ export function resetEmail({ name, link }) {
   };
 }
 
-export function releaseEmail({ name, lesson }) {
+export function productAccessEmail({ name, product, link }) {
+  const first = (name || '').split(' ')[0] || 'olá';
+  return {
+    subject: `Novo acesso liberado: ${product.name}`,
+    html: emailLayout({
+      preheader: 'Ele já está disponível na sua área de membros.',
+      heading: `${esc(first)}, você tem um novo conteúdo.`,
+      paragraphs: [`O acesso a <b>${esc(product.name)}</b> foi liberado na sua conta.`, 'Entre com o mesmo e-mail e a mesma senha de sempre. Ele aparece na sua área, ao lado dos outros conteúdos.'],
+      cta: { label: `Acessar ${product.short_name || product.name}`, url: link },
+    }),
+  };
+}
+
+export function releaseEmail({ name, lesson, product, link }) {
   const first = (name || '').split(' ')[0] || '';
   const msg = (lesson.release_message || '').replace(/\[nome\]/gi, first).replace(/\[link\]/gi, '').trim();
   const paras = msg ? msg.split(/\n+/).filter((l) => !/^acesse aqui:?\s*$/i.test(l.trim())).map(esc) : [esc(lesson.subtitle || '')];
+  const unit = product?.unit_label || 'Dia';
   return {
-    subject: `Dia ${lesson.number} liberado: ${lesson.title}`,
-    html: emailLayout({ preheader: lesson.subtitle || '', heading: `Dia ${lesson.number}: ${esc(lesson.title)}`, paragraphs: paras, cta: { label: `Abrir o Dia ${lesson.number}`, url: `${config.appUrl}/dia/${lesson.number}` } }),
+    subject: `${unit} ${lesson.number} liberado: ${lesson.title}`,
+    html: emailLayout({ preheader: lesson.subtitle || '', heading: `${unit} ${lesson.number}: ${esc(lesson.title)}`, paragraphs: paras, cta: { label: `Abrir ${unit === 'Aula' || unit === 'Lição' ? 'a' : 'o'} ${unit} ${lesson.number}`, url: link || `${config.appUrl}/dia/${lesson.number}` } }),
   };
 }

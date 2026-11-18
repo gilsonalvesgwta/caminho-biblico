@@ -1,7 +1,7 @@
 import { db, now, getSettings } from './db.js';
 import { config } from './config.js';
 import { issueUserToken } from './auth.js';
-import { sendEmail, accessEmail, releaseEmail } from './mailer.js';
+import { sendEmail, accessEmail, releaseEmail, productAccessEmail } from './mailer.js';
 import { emit } from './events.js';
 import { compute } from '../public/shared/calc.js';
 
@@ -27,13 +27,17 @@ export function upsertUser({ email, name, phone, document, greennClientId }) {
 
 export const publicUser = (u) => u && ({ id: u.id, name: u.name, email: u.email, phone: u.phone });
 
-export function grantAccess(userId, productId, { source = 'greenn', saleRef = null } = {}) {
+export function grantAccess(userId, productId, { source = 'greenn', saleRef = null, expiresAt } = {}) {
   const t = now();
   const p = db.get('SELECT * FROM products WHERE id = ?', productId);
-  const expires = p?.access_days ? new Date(Date.now() + p.access_days * 86400e3).toISOString() : null;
+  if (!p) throw new Error('Produto não encontrado');
+  const expires = expiresAt !== undefined ? expiresAt : p.access_days ? new Date(Date.now() + p.access_days * 86400e3).toISOString() : null;
   const ex = db.get('SELECT * FROM enrollments WHERE user_id = ? AND product_id = ?', userId, productId);
   if (ex) {
-    if (ex.status === 'active') return { enrollment: ex, activated: false };
+    if (ex.status === 'active') {
+      if (expiresAt !== undefined && expiresAt !== ex.expires_at) db.run('UPDATE enrollments SET expires_at = ?, updated_at = ? WHERE id = ?', expiresAt, t, ex.id);
+      return { enrollment: db.get('SELECT * FROM enrollments WHERE id = ?', ex.id), activated: false };
+    }
     db.run("UPDATE enrollments SET status = 'active', source = ?, sale_ref = COALESCE(?, sale_ref), revoked_at = NULL, expires_at = ?, updated_at = ? WHERE id = ?", source, saleRef, expires, t, ex.id);
   } else {
     db.run("INSERT INTO enrollments (user_id, product_id, status, source, sale_ref, started_at, expires_at, created_at, updated_at) VALUES (?,?,'active',?,?,?,?,?,?)",
@@ -60,6 +64,20 @@ export async function sendAccessEmail(user, { isNew = true } = {}) {
   const { subject, html } = accessEmail({ name: user.name, link, isNew });
   const r = await sendEmail({ to: user.email, subject, html, userId: user.id, kind: 'access', ref: String(Date.now()) });
   return { ...r, link };
+}
+
+/** Aluno que já tem senha ganhou um produto novo: avisa com o link direto do produto */
+export async function sendProductAccessEmail(user, product) {
+  if (!user.password_hash) return sendAccessEmail(user, { isNew: true });
+  const { subject, html } = productAccessEmail({ name: user.name, product, link: `${config.appUrl}/p/${product.slug}` });
+  return sendEmail({ to: user.email, subject, html, userId: user.id, kind: 'product_access', ref: `${product.id}:${Date.now()}` });
+}
+
+/** Dados públicos de um produto para o app (identidade visual incluída) */
+export function productPublic(p) {
+  return { id: p.id, slug: p.slug, name: p.name, shortName: p.short_name || p.name, kind: p.kind, tagline: p.tagline, description: p.description, mentor: p.mentor,
+    theme: jparse(p.theme, {}), logo: p.logo_url, cover: p.cover_url, unitLabel: p.unit_label || 'Dia', showLive: !!p.show_live, badge: p.badge,
+    materials: jparse(p.materials, []).filter((m) => m.url) };
 }
 
 // ---------- liberação dos dias ----------
@@ -137,7 +155,7 @@ export function nextLive(s = getSettings()) {
 export async function processReleases() {
   const s = getSettings();
   const rows = db.all(`SELECT e.*, u.name, u.email, u.phone, u.status ustatus FROM enrollments e JOIN users u ON u.id = e.user_id
-    JOIN products p ON p.id = e.product_id WHERE e.status = 'active' AND p.kind = 'challenge' AND p.active = 1 AND u.status = 'active'`);
+    JOIN products p ON p.id = e.product_id WHERE e.status = 'active' AND p.kind IN ('challenge','course') AND p.active = 1 AND u.status = 'active' AND (e.expires_at IS NULL OR e.expires_at > ?)`, now());
   let sent = 0;
   for (const e of rows) {
     const product = db.get('SELECT * FROM products WHERE id = ?', e.product_id);
@@ -150,11 +168,11 @@ export async function processReleases() {
       const lesson = lessons.find((l) => l.id === st.lessonId);
       db.run("INSERT OR IGNORE INTO notifications (user_id, kind, ref, channel, status, created_at) VALUES (?,?,?,?,?,?)", e.user_id, 'release', ref, 'event', 'sent', now());
       const first = (e.name || '').split(' ')[0];
-      const link = `${config.appUrl}/dia/${st.number}`;
-      emit('day.released', { user: { id: e.user_id, name: e.name, email: e.email, phone: e.phone }, day: st.number, title: lesson.title, link,
+      const link = `${config.appUrl}/p/${product.slug}/dia/${st.number}`;
+      emit('day.released', { user: { id: e.user_id, name: e.name, email: e.email, phone: e.phone }, product: { slug: product.slug, name: product.name }, day: st.number, title: lesson.title, link,
         whatsapp_message: (lesson.release_message || '').replace(/\[nome\]/gi, first).replace(/\[link\]/gi, link) });
       if (s.release_emails === 'true') {
-        const { subject, html } = releaseEmail({ name: e.name, lesson });
+        const { subject, html } = releaseEmail({ name: e.name, lesson, product, link });
         await sendEmail({ to: e.email, subject, html, userId: e.user_id, kind: 'release', ref });
       }
       sent++;

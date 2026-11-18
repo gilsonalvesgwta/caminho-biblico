@@ -74,6 +74,67 @@ try {
   assert.equal((await call('x', 'POST', hook, { ...venda, currentStatus: 'refunded' })).json.outcome, 'ok');
   assert.equal((await call('user', 'GET', '/api/app/p/desafio-7-dias/day/1')).status, 403); step('reembolso remove o acesso');
 
+  // ---------- multiproduto ----------
+  const temaRiqueza = { primary: '#2B0F18', accent: '#D8B48A', secondary: '#7A2E3B', font: 'Playfair Display' };
+  const p2 = (await call('admin', 'POST', '/api/admin/products', { name: 'Riqueza a Dois', slug: 'riqueza-a-dois', kind: 'course', unit_label: 'Aula', release_mode: 'sequential', greenn_ids: '777', theme: { ...temaRiqueza, primary: 'vermelho' }, short_name: 'Riqueza a Dois', mentor: 'Rhus e Carol' })).json;
+  assert.ok(p2.id);
+  const p3 = (await call('admin', 'POST', '/api/admin/products', { name: 'Comunidade Patrimônio', slug: 'comunidade', kind: 'course', show_in_store: true, sales_url: 'https://exemplo.com/comunidade', badge: 'Novo' })).json;
+  assert.equal((await call('admin', 'POST', '/api/admin/products', { name: 'X', slug: 'x2', sales_url: 'javascript:alert(1)' })).status, 400);
+  await call('admin', 'PUT', `/api/admin/products/${p2.id}`, { theme: temaRiqueza });
+  for (const t of ['Introdução', 'Finanças do casal']) await call('admin', 'POST', `/api/admin/products/${p2.id}/lessons`, { title: t, activity_key: '' });
+  const prods = (await call('admin', 'GET', '/api/admin/products')).json.rows;
+  const r2 = prods.find((x) => x.id === p2.id);
+  assert.equal(r2.theme_obj.primary, '#2B0F18'); assert.equal(r2.theme_obj.font, 'Playfair Display'); assert.equal(r2.unit_label, 'Aula');
+  step('produto novo com identidade visual própria (cores inválidas e links perigosos recusados)');
+
+  const svgMau = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>').toString('base64');
+  assert.equal((await call('admin', 'POST', `/api/admin/products/${p2.id}/image`, { target: 'logo', data: svgMau })).status, 400);
+  const svgBom = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>').toString('base64');
+  const lg = (await call('admin', 'POST', `/api/admin/products/${p2.id}/image`, { target: 'logo', data: svgBom })).json;
+  assert.ok(lg.url.startsWith('/media/products/produto-')); assert.equal((await fetch(BASE + lg.url)).status, 200);
+  step('logo do produto (SVG com script é bloqueado)');
+
+  const novo = (await call('admin', 'POST', '/api/admin/students', { name: 'João Teste', email: 'joao@teste.com', product_ids: [1], send_email: false })).json;
+  const link = (await call('admin', 'POST', `/api/admin/students/${novo.id}/send-access`)).json.link;
+  jar.user = '';
+  assert.equal((await call('user', 'POST', '/api/app/token/consume', { token: link.split('t=')[1], password: 'joao-123456' })).status, 200);
+  let me2 = (await call('user', 'GET', '/api/app/me')).json;
+  assert.equal(me2.products.length, 1); assert.equal(me2.store.length, 1); assert.equal(me2.store[0].salesUrl, 'https://exemplo.com/comunidade');
+  step('aluno com 1 produto + vitrine "Conheça também"');
+
+  assert.equal((await call('admin', 'POST', `/api/admin/students/${novo.id}/grant`, { product_id: p2.id, expires_at: '2000-01-01' })).status, 400);
+  const venc = new Date(Date.now() + 40 * 86400e3).toISOString().slice(0, 10);
+  const g = (await call('admin', 'POST', `/api/admin/students/${novo.id}/grant`, { product_id: p2.id, expires_at: venc, notify: true })).json;
+  assert.equal(g.activated, true); assert.ok(['logged', 'sent'].includes(g.email));
+  assert.ok(/Novo acesso liberado: Riqueza a Dois/.test(logs), 'e-mail de novo produto');
+  me2 = (await call('user', 'GET', '/api/app/me')).json;
+  const rq = me2.products.find((x) => x.slug === 'riqueza-a-dois');
+  assert.ok(rq && rq.expiresAt.startsWith(venc.slice(0, 7))); assert.equal(rq.theme.accent, '#D8B48A'); assert.equal(rq.unitLabel, 'Aula'); assert.equal(rq.hasActivities, false);
+  assert.ok(rq.logo);
+  step('liberação manual com validade e aviso por e-mail; tema chega ao app');
+
+  const a1 = (await call('user', 'GET', '/api/app/p/riqueza-a-dois/day/1')).json;
+  assert.equal(a1.product.unitLabel, 'Aula'); assert.equal(a1.product.total, 2); assert.equal(a1.live, null);
+  assert.equal((await call('user', 'GET', '/api/app/p/riqueza-a-dois/day/2')).json.locked, true);
+  const c1 = (await call('user', 'POST', '/api/app/p/riqueza-a-dois/day/1/progress', { action: 'complete' })).json;
+  assert.equal(c1.next.available, true); step('curso sem atividade: concluir aula 1 libera a aula 2 na hora');
+
+  // compra pela Greenn de quem já é aluno: avisa do produto novo
+  await call('admin', 'POST', `/api/admin/students/${novo.id}/revoke`, { product_id: p2.id });
+  assert.equal((await call('user', 'GET', '/api/app/me')).json.products.length, 1);
+  const compra2 = { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 777, name: 'Riqueza a Dois' }, sale: { id: 9100, amount: 197 }, client: { name: 'João Teste', email: 'joao@teste.com' } };
+  const rc = (await call('x', 'POST', hook, compra2)).json;
+  assert.equal(rc.outcome, 'ok');
+  const evs = (await call('admin', 'GET', '/api/admin/webhooks')).json.rows;
+  assert.ok(/Aviso de novo produto enviado/.test(evs[0].message), evs[0].message);
+  assert.equal((await call('user', 'GET', '/api/app/me')).json.products.length, 2);
+  step('aluno que já existe compra outro produto: acesso + aviso, sem reenviar senha');
+
+  const det = (await call('admin', 'GET', `/api/admin/students/${novo.id}`)).json;
+  assert.equal(det.journeys.length, 2); assert.ok(det.journeys.some((x) => x.product.unitLabel === 'Aula'));
+  step('painel mostra o progresso de cada produto do aluno');
+  for (const pth of ['/p/riqueza-a-dois', '/p/riqueza-a-dois/dia/1', '/shared/theme.js']) assert.equal((await fetch(BASE + pth)).status, 200, pth);
+
   // capa personalizada (PNG mínimo válido)
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const cv = (await call('admin', 'POST', '/api/admin/lessons/1/cover', { target: 'video', data: png })).json;
