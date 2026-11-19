@@ -132,6 +132,12 @@ Menu **WhatsApp**. Usa a mesma Evolution API do CRM (endereço + chave global, g
 - **Aula sem vídeo:** sem link de vídeo, o aluno não vê a tela do player — só o conteúdo e os materiais.
 - **PDF:** materiais em PDF enviados pelo painel abrem num leitor dentro da plataforma (pdf.js, Apache-2.0, em `public/shared/pdfjs`), com zoom e botão de baixar. Funciona no celular. PDFs de links externos continuam abrindo no navegador.
 
+## 2i. Impostos e outras despesas (Financeiro)
+
+- **Impostos:** em Financeiro › "Ajustar taxas e impostos" (ou Configurações › Financeiro), informe o % de impostos (nota fiscal, Simples…). Entra no "Do bruto ao lucro" sobre as vendas mantidas (bruto − reembolsos − chargebacks).
+- **Outras despesas:** ferramentas, equipe, contador etc. Única, todo mês ou todo ano (com data de encerramento opcional). A mensal cai todo mês no mesmo dia (dia 31 → último dia dos meses curtos).
+- **Lucro** = faturamento líquido − impostos − marketing − outras despesas.
+
 ## 3. Como a liberação funciona
 
 - Pagamento aprovado na Greenn → webhook → cadastro do aluno + inscrição → e-mail com link para criar a senha (vale 72h; depois o aluno usa "Primeiro acesso / esqueci a senha").

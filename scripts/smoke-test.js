@@ -260,6 +260,36 @@ try {
   const fB = await fin();
   assert.ok(fB.cur.net < fA.cur.net); near(fB.cur.fees, fB.cur.kept.v - fB.cur.net, 'taxas = mantido − líquido');
   await call('admin', 'PUT', '/api/admin/settings', { fee_percent: '4.99', fee_fixed: '1' });
+  // impostos e outras despesas no "Do bruto ao lucro"
+  assert.equal((await call('admin', 'PUT', '/api/admin/settings', { tax_percent: '60' })).status, 400);
+  const tx0 = await fin();
+  await call('admin', 'PUT', '/api/admin/settings', { tax_percent: '6' });
+  const tx1 = await fin();
+  near(tx1.cur.taxes, tx1.cur.kept.v * 0.06, 'impostos = 6% das vendas mantidas'); near(tx1.cur.netAfterTax, tx1.cur.net - tx1.cur.taxes, 'líquido após impostos');
+  near(tx1.cur.profit, tx0.cur.profit - tx1.cur.taxes, 'lucro desconta os impostos');
+  // despesas: mensal no dia 31 (cai no último dia de fevereiro), anual, única e com encerramento
+  const exp = (b) => call('admin', 'POST', '/api/admin/expenses', b);
+  assert.equal((await exp({ description: '', amount: 10, start_date: '2026-01-31' })).status, 400);
+  assert.equal((await exp({ description: 'X', amount: '0', start_date: '2026-01-31' })).status, 400);
+  assert.equal((await exp({ description: 'X', amount: 5, recurrence: 'monthly', start_date: '2026-03-01', end_date: '2026-02-01' })).status, 400);
+  const eM = (await exp({ description: 'Ferramenta de e-mail', amount: '97,00', category: 'ferramentas', recurrence: 'monthly', start_date: '2026-01-31' })).json.expense;
+  await exp({ description: 'Domínio', amount: 60, category: 'ferramentas', recurrence: 'yearly', start_date: '2025-02-10' });
+  await exp({ description: 'Contador', amount: 300, category: 'servicos', recurrence: 'once', start_date: '2026-02-15' });
+  const eEnd = (await exp({ description: 'Freelancer', amount: 500, category: 'equipe', recurrence: 'monthly', start_date: '2026-01-05', end_date: '2026-02-20' })).json.expense;
+  const lx = (await call('admin', 'GET', '/api/admin/expenses?from=2026-02-01&to=2026-03-31')).json;
+  const byD = Object.fromEntries(lx.rows.map((e) => [e.description, e]));
+  assert.deepEqual(byD['Ferramenta de e-mail'].dates, ['2026-02-28', '2026-03-31'], 'mensal do dia 31 cai no último dia de fevereiro');
+  assert.deepEqual(byD['Domínio'].dates, ['2026-02-10']); assert.deepEqual(byD['Freelancer'].dates, ['2026-02-05'], 'encerrada não cobra em março');
+  near(lx.total, 97 * 2 + 60 + 300 + 500, 'total de despesas no período');
+  const fx = await fin('from=2026-02-01&to=2026-03-31');
+  near(fx.cur.expenses, lx.total, 'despesas no financeiro'); near(fx.cur.profit, fx.cur.net - fx.cur.taxes - fx.cur.spend - fx.cur.expenses, 'lucro = líquido − impostos − marketing − despesas');
+  assert.equal((await call('admin', 'PUT', `/api/admin/expenses/${eM.id}`, { amount: 120 })).json.expense.amount, 120);
+  near((await call('admin', 'GET', '/api/admin/expenses?from=2026-02-01&to=2026-03-31')).json.total, 120 * 2 + 60 + 300 + 500, 'editar valor');
+  assert.equal((await call('admin', 'DELETE', `/api/admin/expenses/${eEnd.id}`)).status, 200);
+  assert.equal((await call('user', 'GET', '/api/admin/expenses')).status, 401);
+  await call('admin', 'PUT', '/api/admin/settings', { tax_percent: '0' });
+  for (const e of lx.rows.filter((x) => x.id !== eEnd.id)) await call('admin', 'DELETE', `/api/admin/expenses/${e.id}`);
+  step('financeiro: impostos (%) e outras despesas únicas, mensais e anuais');
   const dash = (await call('admin', 'GET', '/api/admin/dashboard?days=30')).json;
   assert.ok(dash.fin && dash.fin.gross >= 350 && dash.fin.net > 0);
   step('marketing: lançamento por período, CSV da Meta sem duplicar, ROAS, lucro e taxa configurável');

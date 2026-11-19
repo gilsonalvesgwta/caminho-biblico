@@ -37,9 +37,9 @@ export const KPIS = {
   page_conv: { l: 'Conversão da página', g: 'fun', f: 'pct', good: 'up', h: 'Vendas ÷ visualizações da página' },
   add_to_cart: { l: 'Adições ao carrinho', g: 'fun', f: 'int', good: 'up' },
   video_3s: { l: 'Visualizações de 3s', g: 'cri', f: 'int', good: 'up' },
-  hook_rate: { l: 'Hook rate', g: 'cri', f: 'pct', good: 'up', h: 'Visualizações de 3s ÷ impressões (o gancho prende?)' },
-  thruplay: { l: 'ThruPlays', g: 'cri', f: 'int', good: 'up', h: 'Vídeo assistido até o fim ou 15s' },
-  hold_rate: { l: 'Hold rate', g: 'cri', f: 'pct', good: 'up', h: 'ThruPlays ÷ visualizações de 3s (o vídeo segura?)' },
+  hook_rate: { l: 'Taxa de retenção inicial', g: 'cri', f: 'pct', good: 'up', h: 'De quem viu o anúncio, quantos assistiram aos 3 primeiros segundos (o começo do vídeo prende a atenção?)' },
+  thruplay: { l: 'Vídeos assistidos (15s)', g: 'cri', f: 'int', good: 'up', h: 'Vídeo assistido até o fim ou por pelo menos 15 segundos (ThruPlay)' },
+  hold_rate: { l: 'Taxa de retenção do vídeo', g: 'cri', f: 'pct', good: 'up', h: 'De quem passou dos 3 segundos, quantos assistiram até o fim ou 15 segundos (o vídeo segura a atenção até a mensagem?)' },
   purchases: { l: 'Compras (Meta)', g: 'meta', f: 'int', good: 'up', h: 'Compras informadas pelo pixel da Meta' },
   purchase_value: { l: 'Valor de compras (Meta)', g: 'meta', f: 'money', good: 'up' },
   meta_roas: { l: 'ROAS (Meta)', g: 'meta', f: 'x', good: 'up', h: 'Valor de compras do pixel ÷ investimento' },
@@ -416,7 +416,7 @@ async function renderConnection() {
   const body = !st.connected ? `
     <div class="cols"><div class="panel c7"><div class="panel-h"><h3>Conectar a conta de anúncios da Meta</h3></div><div class="panel-b">${guide}${form}</div></div>
     <div class="panel c5"><div class="panel-h"><h3>O que você ganha</h3></div><div class="panel-b ad-benefits">
-      <p><b>Tudo em um painel:</b> investimento, impressões, cliques, CTR, CPC, CPM, connect rate, checkout, hook e hold rate por campanha, conjunto e anúncio.</p>
+      <p><b>Tudo em um painel:</b> investimento, impressões, cliques, CTR, CPC, CPM, connect rate, checkout e retenção dos vídeos por campanha, conjunto e anúncio.</p>
       <p><b>Vendas reais, não só o pixel:</b> cada venda aprovada na Greenn é ligada ao anúncio pelo UTM, com ROAS, ROI, CPA e lucro de verdade.</p>
       <p><b>Atualização automática</b> a cada ${esc(st.syncLabel)} (você escolhe o intervalo), sem exportar planilha.</p>
       <p><b>O Financeiro também usa esses gastos:</b> ROAS e lucro da plataforma sem lançamento manual.</p></div></div></div>`

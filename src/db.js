@@ -399,6 +399,22 @@ const migrations = [
   )), '[]');
   UPDATE lessons SET block = TRIM(block) WHERE block IS NOT NULL AND block <> TRIM(block);
   `,
+  // 14: outras despesas (ferramentas, equipe, serviços...) — únicas, mensais ou anuais
+  `
+  CREATE TABLE expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'outros',
+    amount REAL NOT NULL,
+    start_date TEXT NOT NULL,
+    recurrence TEXT NOT NULL DEFAULT 'once',
+    end_date TEXT,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX expenses_start ON expenses(start_date);
+  `,
 ];
 
 export function migrate() {
@@ -449,6 +465,7 @@ export const SETTING_DEFAULTS = {
   brand_app_icon: '', // ícone do celular (gerado a partir do ícone, com fundo da marca)
   fee_percent: '4.99', // taxa da plataforma de pagamento (%), usada quando a Greenn não envia o líquido
   fee_fixed: '1.00', // taxa fixa por venda (R$)
+  tax_percent: '0', // impostos sobre as vendas (nota fiscal, Simples etc.), % sobre as vendas mantidas
   meta_token_enc: '', meta_token_hint: '', meta_app_secret_enc: '', meta_user_name: '', meta_connected_at: '',
   meta_api_version: 'v26.0', meta_sync_hours: '6', meta_sync_minutes: '', meta_history_days: '90', meta_sync_on_sale: 'true',
   meta_last_sync_at: '', meta_last_attempt_at: '', meta_dash_prefs: '',

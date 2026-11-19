@@ -211,32 +211,87 @@ function delta(cur, prev, { invert = false, points = false } = {}) {
   return `<span class="delta ${good ? 'up' : 'down'}">${r > 0 ? '▲' : '▼'} ${num(Math.abs(r) * 100, 0)}%</span>`;
 }
 
+/** Taxas da plataforma e impostos usados no "Do bruto ao lucro" */
+async function ratesModal(reload) {
+  const { settings: st } = await api('/api/admin/settings');
+  modal({ title: 'Taxas e impostos', eyebrow: 'Financeiro', body: `
+    <form id="rt" class="form-grid">
+      <div class="field full"><label>Impostos sobre as vendas (%)</label><input class="input" name="tax_percent" inputmode="decimal" value="${esc(String(st.tax_percent ?? '0').replace('.', ','))}" placeholder="Ex.: 6"><span class="hint">Nota fiscal, Simples Nacional, ISS… Calculado sobre as vendas que ficaram (bruto − reembolsos − chargebacks). Confirme o percentual com o seu contador.</span></div>
+      <div class="field"><label>Taxa da plataforma de pagamento (%)</label><input class="input" name="fee_percent" inputmode="decimal" value="${esc(String(st.fee_percent ?? '').replace('.', ','))}" placeholder="4,99"></div>
+      <div class="field"><label>Taxa fixa por venda (R$)</label><input class="input" name="fee_fixed" inputmode="decimal" value="${esc(String(st.fee_fixed ?? '').replace('.', ','))}" placeholder="1,00"></div>
+      <p class="hint full" style="margin:-4px 0 0">As taxas da plataforma só são usadas quando a Greenn não envia o valor líquido da venda. Quando envia, vale o valor real.</p>
+      <div class="modal-actions full"><button class="btn btn-primary">Salvar</button><button type="button" class="btn btn-ghost" id="rt-cancel">Cancelar</button></div>
+    </form>`,
+  onMount: (m, close) => {
+    m.querySelector('#rt-cancel').onclick = close;
+    m.querySelector('#rt').onsubmit = (e) => { e.preventDefault(); withLoading(e.submitter, async () => {
+      const f = Object.fromEntries(new FormData(e.target));
+      for (const k in f) f[k] = String(f[k]).replace(/\s/g, '').replace(',', '.') || '0';
+      try { await api('/api/admin/settings', { method: 'PUT', body: f }); close(); toast('Taxas e impostos salvos.'); reload(); } catch (er) { toast(er.message, { error: true }); }
+    }); };
+  } });
+}
+
+/** Lançar ou editar despesa: única, mensal ou anual */
+function expenseModal(e, cats, reload) {
+  const isNew = !e; e = e || { recurrence: 'monthly', category: 'ferramentas', start_date: localDay(0) };
+  modal({ title: isNew ? 'Lançar despesa' : 'Editar despesa', eyebrow: 'Financeiro', body: `
+    <form id="ex" class="form-grid">
+      <div class="field full"><label>Descrição</label><input class="input" name="description" value="${esc(e.description || '')}" maxlength="160" placeholder="Ex.: Assinatura da ferramenta de e-mail" required></div>
+      <div class="field"><label>Valor (R$)</label><input class="input" name="amount" inputmode="decimal" value="${e.amount ? esc(String(e.amount).replace('.', ',')) : ''}" placeholder="97,00" required></div>
+      <div class="field"><label>Categoria</label><select class="input" name="category">${Object.entries(cats).map(([k, l]) => `<option value="${k}" ${e.category === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="field full"><label>Cobrança</label><div class="tabs ex-rec" id="ex-rec">${[['once', 'Única'], ['monthly', 'Todo mês'], ['yearly', 'Todo ano']].map(([k, l]) => `<button type="button" data-rec="${k}" class="${e.recurrence === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <div class="field"><label id="ex-dl">${e.recurrence === 'once' ? 'Data' : 'Primeira cobrança'}</label><input class="input" type="date" name="start_date" value="${esc(e.start_date || '')}" required></div>
+      <div class="field" id="ex-end" ${e.recurrence === 'once' ? 'hidden' : ''}><label>Encerrar em <span class="faint">(opcional)</span></label><input class="input" type="date" name="end_date" value="${esc(e.end_date || '')}"></div>
+      <div class="field full"><label>Observação <span class="faint">(opcional)</span></label><input class="input" name="note" value="${esc(e.note || '')}" maxlength="300" placeholder="Ex.: plano anual com desconto"></div>
+      <p class="hint full" id="ex-hint" style="margin:-4px 0 0"></p>
+      <div class="modal-actions full"><button class="btn btn-primary">${isNew ? 'Lançar despesa' : 'Salvar'}</button><button type="button" class="btn btn-ghost" id="ex-cancel">Cancelar</button></div>
+    </form>`,
+  onMount: (m, close) => {
+    let rec = e.recurrence;
+    const hint = () => { m.querySelector('#ex-hint').textContent = rec === 'monthly' ? 'Entra no lucro de todo mês, no mesmo dia, até a data de encerramento (se houver).' : rec === 'yearly' ? 'Entra no lucro uma vez por ano, na mesma data.' : 'Entra no lucro só na data informada.'; };
+    hint();
+    m.querySelectorAll('[data-rec]').forEach((b) => (b.onclick = () => {
+      rec = b.dataset.rec; m.querySelectorAll('[data-rec]').forEach((x) => x.classList.toggle('on', x === b));
+      m.querySelector('#ex-end').hidden = rec === 'once'; m.querySelector('#ex-dl').textContent = rec === 'once' ? 'Data' : 'Primeira cobrança'; hint();
+    }));
+    m.querySelector('#ex-cancel').onclick = close;
+    m.querySelector('#ex').onsubmit = (ev) => { ev.preventDefault(); withLoading(ev.submitter, async () => {
+      const f = Object.fromEntries(new FormData(ev.target)); f.recurrence = rec;
+      try {
+        await api(isNew ? '/api/admin/expenses' : `/api/admin/expenses/${e.id}`, { method: isNew ? 'POST' : 'PUT', body: f });
+        close(); toast(isNew ? 'Despesa lançada.' : 'Despesa atualizada.'); reload();
+      } catch (er) { toast(er.message, { error: true }); }
+    }); };
+  } });
+}
+
 async function pageFinance() {
   if (!can('admin')) { $('#main').innerHTML = head('Financeiro') + '<div class="alert alert-warn">Apenas administradores veem o financeiro.</div>'; return; }
   const rg = finRange();
-  const [d, { rows: spend }, { rows: products }] = await Promise.all([api(`/api/admin/finance?from=${rg.from}&to=${rg.to}`), api(`/api/admin/marketing/spend?from=${rg.from}&to=${rg.to}`), api('/api/admin/products')]);
+  const [d, { rows: spend }, { rows: products }, exp] = await Promise.all([api(`/api/admin/finance?from=${rg.from}&to=${rg.to}`), api(`/api/admin/marketing/spend?from=${rg.from}&to=${rg.to}`), api('/api/admin/products'), api(`/api/admin/expenses?from=${rg.from}&to=${rg.to}`)]);
   const c = d.cur, p = d.prev;
   const presets = [['today', 'Hoje'], ['7', '7 dias'], ['30', '30 dias'], ['month', 'Este mês'], ['last', 'Mês passado'], ['90', '90 dias'], ['custom', 'Personalizado']];
   const kpi = (label, value, sub, extra = '', cls = '') => `<div class="panel kpi c3 ${cls}"><div class="l">${label}${extra}</div><div class="v">${value}</div><div class="s">${sub}</div></div>`;
-  const hasSpend = c.spend > 0;
-  const fallLine = (label, v, kind, hint = '') => `<div class="wf-row ${kind}"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span><div class="wf-bar"><i style="width:${c.gross ? Math.min(100, (Math.abs(v) / c.gross) * 100) : 0}%"></i></div><b>${kind === 'minus' ? '− ' : ''}${brl(Math.abs(v))}</b></div>`;
+  const hasSpend = c.spend > 0, hasCosts = hasSpend || c.expenses > 0;
+  const fallLine = (label, v, kind, hint = '') => `<div class="wf-row ${kind}"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span><div class="wf-bar"><i style="width:${c.gross ? Math.min(100, (Math.abs(v) / c.gross) * 100) : 0}%"></i></div><b>${kind === 'minus' || (kind === 'neg-total' && v < 0) ? '− ' : ''}${brl(Math.abs(v))}</b></div>`;
   const prodOpts = products.filter((x) => x.kind !== 'bonus').map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
   $('#main').innerHTML = head('Financeiro', `${fmtDay(d.from)} a ${fmtDay(d.to)} · horário de Brasília · comparado a ${fmtDay(d.prevFrom)}–${fmtDay(d.prevTo)}`,
     `<div class="tabs fin-tabs" style="margin:0">${presets.map(([k, l]) => `<button data-pre="${k}" class="${FIN.preset === k ? 'on' : ''}">${l}</button>`).join('')}</div>`) + `
     ${FIN.preset === 'custom' ? `<div class="panel panel-b fin-custom"><div class="field"><label>De</label><input class="input" type="date" id="ff" value="${d.from}"></div><div class="field"><label>Até</label><input class="input" type="date" id="ft" value="${d.to}" max="${localDay(0)}"></div><button class="btn btn-primary btn-sm" id="fapply">Aplicar</button></div>` : ''}
     <div class="cols">
       ${kpi('Faturamento bruto', brl(c.gross), `${c.approved} venda(s) aprovada(s) · ticket ${brl(c.ticket)}`, delta(c.gross, p.gross), 'dark')}
-      ${kpi('Faturamento líquido', brl(c.net), `depois de taxas, reembolsos e chargebacks${c.netRealShare >= 0.999 || !c.kept.c ? '' : c.netRealShare > 0 ? ' · parte estimada' : ' · taxa estimada'}`, delta(c.net, p.net))}
-      ${kpi(hasSpend ? 'Lucro após marketing' : 'Investimento em marketing', hasSpend ? `<span class="${c.profit < 0 ? 'neg' : ''}">${brl(c.profit)}</span>` : brl(0), hasSpend ? `líquido − ${brl(c.spend)} investidos · margem ${c.margin == null ? '—' : pct(c.margin)}` : 'Lance os gastos abaixo para ver ROI e ROAS', hasSpend ? delta(c.profit, p.profit) : '')}
+      ${kpi('Faturamento líquido', brl(c.netAfterTax), `depois de taxas${c.taxes ? ', impostos' : ''}, reembolsos e chargebacks${c.netRealShare >= 0.999 || !c.kept.c ? '' : c.netRealShare > 0 ? ' · parte estimada' : ' · taxa estimada'}`, delta(c.netAfterTax, p.netAfterTax))}
+      ${kpi(hasCosts ? 'Lucro' : 'Investimento em marketing', hasCosts ? `<span class="${c.profit < 0 ? 'neg' : ''}">${brl(c.profit)}</span>` : brl(0), hasCosts ? `líquido − ${[hasSpend ? `${brl(c.spend)} em marketing` : '', c.expenses ? `${brl(c.expenses)} em despesas` : ''].filter(Boolean).join(' − ')} · margem ${c.margin == null ? '—' : pct(c.margin)}` : 'Lance os gastos abaixo para ver ROI e ROAS', hasCosts ? delta(c.profit, p.profit) : '')}
       ${kpi('Reembolsos e chargebacks', brl(c.refunds.v + c.chargebacks.v), `${pct(c.refundRate)} das vendas · ${c.refunds.c} reembolso(s) · ${c.chargebacks.c} chargeback(s)`, delta(c.refundRate, p.refundRate, { invert: true, points: true }))}
 
       <div class="panel c12"><div class="panel-h"><h3>Marketing</h3><span class="faint">${hasSpend ? `${spend.length} campanha(s) ou lançamento(s) no período` : 'Sem gastos lançados no período'}</span></div>
         <div class="mk-grid">
           <div><span>Investimento</span><b>${brl(c.spend)}</b>${delta(c.spend, p.spend, { invert: true })}</div>
           <div><span>ROAS</span><b>${c.roas == null ? '—' : `${num(c.roas)}x`}</b><small>bruto ÷ investimento</small></div>
-          <div><span>ROI</span><b class="${c.roi < 0 ? 'neg' : ''}">${c.roi == null ? '—' : pct(c.roi)}</b><small>(líquido − invest.) ÷ invest.</small></div>
+          <div><span>ROI</span><b class="${c.roi < 0 ? 'neg' : ''}">${c.roi == null ? '—' : pct(c.roi)}</b><small>(líquido${c.taxes ? ' − impostos' : ''} − invest.) ÷ invest.</small></div>
           <div><span>Custo por venda (CAC)</span><b>${c.cac == null ? '—' : brl(c.cac)}</b><small>investimento ÷ vendas</small></div>
-          <div><span>Lucro</span><b class="${c.profit < 0 ? 'neg' : ''}">${brl(c.profit)}</b><small>líquido − investimento</small></div>
+          <div><span>Resultado do marketing</span><b class="${c.netAfterTax - c.spend < 0 ? 'neg' : ''}">${brl(c.netAfterTax - c.spend)}</b><small>líquido − investimento (sem outras despesas)</small></div>
           <div><span>Cliques · impressões</span><b>${c.clicks ? c.clicks.toLocaleString('pt-BR') : '—'}</b><small>${c.impressions ? `${c.impressions.toLocaleString('pt-BR')} impressões${c.clicks ? ` · CPC ${brl(c.spend / c.clicks)}` : ''}` : 'importando o CSV da Meta'}</small></div>
         </div></div>
 
@@ -246,10 +301,12 @@ async function pageFinance() {
         ${fallLine('Reembolsos', c.refunds.v, 'minus', `${c.refunds.c} venda(s)`)}
         ${fallLine('Chargebacks', c.chargebacks.v, 'minus', `${c.chargebacks.c} venda(s)`)}
         ${fallLine('Taxas da plataforma', c.fees, 'minus', c.netRealShare >= 0.999 && c.kept.c ? 'valor real da Greenn' : `${num(d.fee.percent)}% + ${brl(d.fee.fixed)} por venda`)}
-        ${fallLine('Faturamento líquido', c.net, 'sub')}
+        ${fallLine('Impostos', c.taxes, 'minus', c.taxPercent ? `nota fiscal · ${String(c.taxPercent).replace('.', ',')}% das vendas` : 'nota fiscal · não configurado')}
+        ${fallLine('Faturamento líquido', c.netAfterTax, 'sub')}
         ${fallLine('Marketing', c.spend, 'minus')}
+        ${fallLine('Outras despesas', c.expenses, 'minus', exp.rows.length ? 'ferramentas, equipe, serviços…' : 'nenhuma lançada')}
         ${fallLine('Lucro', c.profit, c.profit < 0 ? 'neg-total' : 'total profit')}
-        <a class="faint" style="font-size:12px" href="${BASE}/config" data-go="/config">Ajustar a taxa usada na estimativa →</a>
+        <button type="button" class="wf-link" id="fin-rates">Ajustar taxas e impostos →</button>
       </div></div>
 
       <div class="panel c12"><div class="panel-h"><h3>Por produto</h3><span class="faint">vendas feitas no período</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Produto</th><th class="r">Vendas</th><th class="r">Bruto</th><th class="r">Reembolsos</th><th class="r">Líquido</th><th class="r">Investimento</th><th class="r">ROAS</th></tr></thead><tbody>
@@ -269,7 +326,13 @@ async function pageFinance() {
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Campanha / descrição</th><th>Período</th><th>Produto</th><th>Origem</th><th class="r">Cliques</th><th class="r">Investido</th><th></th></tr></thead><tbody>
         ${spend.map((r, i) => `<tr><td><b>${esc(r.campaign_name || 'Sem nome')}</b></td><td>${r.date_from === r.date_to ? fmtDay(r.date_from) : `${fmtDay(r.date_from).slice(0, 5)} a ${fmtDay(r.date_to)} <small class="faint">· ${r.days} dias</small>`}</td><td>${esc(r.product_name || 'Geral')}</td><td>${r.source === 'manual' ? '<span class="badge">Manual</span>' : r.source === 'meta' ? '<span class="badge ok">Meta Ads</span>' : '<span class="badge gold">CSV da Meta</span>'}</td><td class="r">${r.clicks ? r.clicks.toLocaleString('pt-BR') : '—'}</td><td class="r"><b>${brl(r.spend)}</b></td><td class="r"><button class="btn btn-ghost btn-sm" data-sdel="${i}">Excluir</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nenhum gasto no período. Lance manualmente ou importe o relatório do Gerenciador de Anúncios.</td></tr>'}
         </tbody></table></div>
-        <div class="panel-b meta-soon"><div><b>Integração direta com a Meta Ads</b><p class="faint" style="margin:4px 0 0">Próxima etapa: conectar a conta de anúncios para os gastos, cliques e impressões entrarem sozinhos todos os dias, por campanha. Enquanto isso, o CSV do Gerenciador de Anúncios já alimenta ROAS, ROI e CAC.</p></div><span class="badge gold">Em breve</span></div>
+        <div class="panel-b meta-soon"><div><b>Meta Ads</b><p class="faint" style="margin:4px 0 0">Com a conta de anúncios conectada, o investimento entra sozinho, por campanha. Métricas completas em Anúncios.</p></div><a class="btn btn-soft btn-sm" href="${BASE}/anuncios" data-go="/anuncios">Abrir Anúncios →</a></div>
+      </div>
+
+      <div class="panel c12"><div class="panel-h"><h3>Outras despesas</h3><div class="actions"><span class="faint">${exp.rows.length ? `${brl(exp.total)} no período` : 'ferramentas, equipe, serviços…'}</span><button class="btn btn-primary btn-sm" id="exadd">+ Lançar despesa</button></div></div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Despesa</th><th>Categoria</th><th>Cobrança</th><th class="r">Valor</th><th class="r">No período</th><th></th></tr></thead><tbody>
+        ${exp.rows.map((e, i) => `<tr><td><b>${esc(e.description)}</b>${e.note ? `<br><small class="faint">${esc(e.note)}</small>` : ''}</td><td><span class="badge">${esc(e.category_label)}</span></td><td>${e.recurrence === 'once' ? fmtDay(e.start_date) : `<span class="badge gold">${e.recurrence === 'monthly' ? 'Mensal' : 'Anual'}</span><br><small class="faint">desde ${fmtDay(e.start_date)}${e.end_date ? ` · até ${fmtDay(e.end_date)}` : ''}</small>`}</td><td class="r">${brl(e.amount)}${e.recurrence === 'monthly' ? '<small class="faint">/mês</small>' : e.recurrence === 'yearly' ? '<small class="faint">/ano</small>' : ''}</td><td class="r"><b>${e.total ? brl(e.total) : '—'}</b>${e.hits > 1 ? `<br><small class="faint">${e.hits} cobranças</small>` : !e.hits ? '<br><small class="faint">nenhuma cobrança no período</small>' : ''}</td><td class="r nowrap"><button class="btn btn-ghost btn-sm" data-exed="${i}">Editar</button><button class="btn btn-ghost btn-sm" data-exdel="${i}">Excluir</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nenhuma despesa no período. Lance assinaturas de ferramentas, equipe, contador e outros custos para ver o lucro real.</td></tr>'}
+        </tbody></table></div>
       </div>
 
       <div class="panel c12"><div class="panel-h"><h3>Reembolsos e chargebacks do período</h3><a href="${BASE}/vendas" data-go="/vendas">Todas as vendas →</a></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Produto</th><th>Status</th><th class="r">Valor</th><th>Quando</th></tr></thead><tbody>
@@ -277,6 +340,14 @@ async function pageFinance() {
       </tbody></table></div></div>
     </div>`;
   finChart($('#fch'), d.series);
+  $('#fin-rates')?.addEventListener('click', () => ratesModal(pageFinance));
+  $('#exadd')?.addEventListener('click', () => expenseModal(null, exp.categories, pageFinance));
+  $$('[data-exed]').forEach((b) => (b.onclick = () => expenseModal(exp.rows[Number(b.dataset.exed)], exp.categories, pageFinance)));
+  $$('[data-exdel]').forEach((b) => (b.onclick = async () => {
+    const e = exp.rows[Number(b.dataset.exdel)];
+    if (!confirm(`Excluir a despesa "${e.description}"?${e.recurrence !== 'once' ? ' Ela sai de todos os meses, inclusive os anteriores. Se ela só parou de ser cobrada, use Editar › Encerrar em.' : ''}`)) return;
+    try { await api(`/api/admin/expenses/${e.id}`, { method: 'DELETE' }); toast('Despesa excluída.'); pageFinance(); } catch (er) { toast(er.message, { error: true }); }
+  }));
   $$('[data-pre]').forEach((b) => (b.onclick = () => { FIN.preset = b.dataset.pre; if (FIN.preset === 'custom' && !FIN.from) { FIN.from = d.from; FIN.to = d.to; } pageFinance(); }));
   $('#fapply')?.addEventListener('click', () => { FIN.from = $('#ff').value; FIN.to = $('#ft').value; if (!FIN.from || !FIN.to) return toast('Escolha as duas datas', { error: true }); pageFinance(); });
   $$('tr[data-user]').forEach((tr) => tr.dataset.user && (tr.onclick = () => go(`/alunos/${tr.dataset.user}`)));
@@ -1251,7 +1322,7 @@ async function pageSettings() {
     email: ['E-mail', `${f('email_provider', 'Provedor de envio', { opts: [['log', 'Modo teste (não envia, só registra)'], ['resend', 'Resend (recomendado)'], ['brevo', 'Brevo'], ['smtp', 'SMTP próprio']] })}${f('email_from_address', 'E-mail remetente', { type: 'email', ph: 'contato@seudominio.com.br', hint: 'O domínio precisa estar verificado no provedor (SPF/DKIM).' })}${f('email_from_name', 'Nome do remetente (e-mails gerais)', { hint: 'E-mails de acesso, novo produto, liberação de aula e senha saem com o nome do curso/desafio (o "Nome curto" do produto, se houver).' })}${f('resend_api_key', 'Resend · API key')}${f('brevo_api_key', 'Brevo · API key')}${f('smtp_host', 'SMTP · servidor')}${f('smtp_port', 'SMTP · porta', { ph: '465 ou 587' })}${f('smtp_user', 'SMTP · usuário')}${f('smtp_pass', 'SMTP · senha', { type: 'password' })}${f('smtp_secure', 'SMTP · TLS', { opts: [['true', 'TLS direto (porta 465)'], ['false', 'STARTTLS (porta 587)']] })}
       ${sw('release_emails', 'Enviar e-mail automático quando cada dia for liberado')}<div class="full"><button type="button" class="btn btn-soft btn-sm" id="te">Enviar e-mail de teste para mim</button></div>`],
     live: ['Aula ao vivo', `${sw('live_enabled', 'Mostrar o convite da aula ao vivo (Dias 6 e 7 e resultados)')}${f('live_title', 'Título', { full: true })}${f('live_weekday', 'Dia da semana', { opts: [[0, 'Domingo'], [1, 'Segunda'], [2, 'Terça'], [3, 'Quarta'], [4, 'Quinta'], [5, 'Sexta'], [6, 'Sábado']] })}${f('live_time', 'Horário (Brasília)', { type: 'time' })}${f('live_url', 'Link da aula (YouTube, Zoom, StreamYard…)', { full: true })}${f('live_description', 'Descrição', { full: true, area: true })}`],
-    finance: ['Financeiro', `<p class="muted full" style="margin:0 0 6px">Usado para calcular o <b>faturamento líquido</b> quando a Greenn não envia o valor líquido da venda. Quando envia, o valor real é usado automaticamente.</p>${f('fee_percent', 'Taxa da plataforma de pagamento (%)', { type: 'number', ph: '4.99', hint: 'Greenn: confira em Minha conta › Taxas. Ex.: 4,99' })}${f('fee_fixed', 'Taxa fixa por venda (R$)', { type: 'number', ph: '1.00', hint: 'Ex.: 1,00' })}`],
+    finance: ['Financeiro', `<p class="muted full" style="margin:0 0 6px">Usado para calcular o <b>faturamento líquido</b> quando a Greenn não envia o valor líquido da venda. Quando envia, o valor real é usado automaticamente.</p>${f('fee_percent', 'Taxa da plataforma de pagamento (%)', { type: 'number', ph: '4.99', hint: 'Greenn: confira em Minha conta › Taxas. Ex.: 4,99' })}${f('fee_fixed', 'Taxa fixa por venda (R$)', { type: 'number', ph: '1.00', hint: 'Ex.: 1,00' })}${f('tax_percent', 'Impostos sobre as vendas (%)', { type: 'number', ph: '6', hint: 'Nota fiscal / Simples. Entra no "Do bruto ao lucro". Ex.: 6' })}`],
     rules: ['Regras do desafio', `${f('phase_reserve_months', 'Meses de reserva para sair da Fase 1', { type: 'number', hint: 'Padrão do roteiro: 6 (ideal 12).' })}${f('phase3_patrimony', 'Patrimônio para entrar na Fase 3 (R$)', { type: 'number' })}${f('phase3_patrimony_foreign', 'Patrimônio para a Fase 3 · quem recebe em euro/dólar', { type: 'number', hint: 'Na moeda do aluno. Padrão: 20.000.' })}${f('tithe_percent', 'Percentual do dízimo (%)', { type: 'number' })}${f('release_hour', 'Hora de liberação no modo calendário (0–23)', { type: 'number' })}<p class="hint full">Ao alterar as regras, as fases de todos os alunos são recalculadas.</p>`],
   };
   tabs.backup = ['Backup', ''];

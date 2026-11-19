@@ -53,16 +53,21 @@ function totals(from, to) {
   const abandoned = db.get('SELECT COUNT(*) c FROM leads WHERE created_at >= ? AND created_at < ? AND converted = 0', a, b).c;
   const spend = db.get(`SELECT COALESCE(SUM(spend),0) v, COALESCE(SUM(impressions),0) imp, COALESCE(SUM(clicks),0) clk FROM ad_spend WHERE date >= ? AND date <= ? AND ${NO_DUP}`, from, to);
   const fees = Math.max(0, r.kept_v - r.net);
-  const profit = r.net - spend.v;
+  // impostos (nota fiscal etc.): % sobre as vendas que ficaram (bruto − reembolsos − chargebacks)
+  const taxPercent = taxPct();
+  const taxes = round2(r.kept_v * taxPercent / 100);
+  const expenses = expensesTotal(from, to);
+  const profit = r.net - taxes - spend.v - expenses;
   return {
     gross: r.gross, approved: r.approved, ticket: r.approved ? r.gross / r.approved : 0,
     refunds: { c: r.refunds_c, v: r.refunds_v }, chargebacks: { c: r.cb_c, v: r.cb_v },
     refundRate: r.approved ? (r.refunds_c + r.cb_c) / r.approved : 0,
     kept: { c: r.kept_c, v: r.kept_v }, fees, net: r.net, netRealShare: r.kept_c ? r.net_real_c / r.kept_c : 0,
+    taxPercent, taxes, netAfterTax: r.net - taxes, expenses,
     pending: { c: pend.c, v: pend.v }, refused, abandoned,
     payRate: r.approved + pend.c + refused ? r.approved / (r.approved + pend.c + refused) : null,
     spend: spend.v, impressions: spend.imp, clicks: spend.clk,
-    profit, roas: spend.v ? r.gross / spend.v : null, roi: spend.v ? profit / spend.v : null,
+    profit, roas: spend.v ? r.gross / spend.v : null, roi: spend.v ? (r.net - taxes - spend.v) / spend.v : null,
     cac: spend.v && r.approved ? spend.v / r.approved : null, margin: r.gross ? profit / r.gross : null,
   };
 }
@@ -125,7 +130,75 @@ export function financeReport(q) {
 }
 
 // ---------- gastos de marketing ----------
-const round2 = (n) => Math.round(n * 100) / 100;
+function round2(n) { return Math.round(n * 100) / 100; }
+const taxPct = () => Math.min(50, Math.max(0, Number(String(getSettings().tax_percent ?? '0').replace(',', '.')) || 0));
+
+// ---------- outras despesas (ferramentas, equipe, serviços...) ----------
+export const EXPENSE_CATS = { ferramentas: 'Ferramentas e sistemas', equipe: 'Equipe e freelancers', servicos: 'Serviços (contador, jurídico...)', conteudo: 'Produção de conteúdo', impostos: 'Impostos e taxas extras', outros: 'Outros' };
+const RECUR = ['once', 'monthly', 'yearly'];
+const lastDay = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate(); // m = 1..12
+const pad = (n) => String(n).padStart(2, '0');
+/** Datas em que a despesa cai dentro do período (a mensal cai todo mês no mesmo dia; no dia 31, cai no último dia dos meses curtos) */
+export function expenseDates(e, from, to) {
+  const end = e.end_date && e.end_date < to ? e.end_date : to;
+  if (e.recurrence === 'once') return e.start_date >= from && e.start_date <= end ? [e.start_date] : [];
+  const [sy, sm, sd] = e.start_date.split('-').map(Number);
+  const out = [];
+  if (e.recurrence === 'monthly') {
+    const [fy, fm] = (from > e.start_date ? from : e.start_date).split('-').map(Number);
+    for (let y = fy, m = fm; ; m === 12 ? (y++, m = 1) : m++) {
+      const d = `${y}-${pad(m)}-${pad(Math.min(sd, lastDay(y, m)))}`;
+      if (d > end) break;
+      if (d >= from && d >= e.start_date) out.push(d);
+      if (out.length > 400) break;
+    }
+  } else if (e.recurrence === 'yearly') {
+    for (let y = Math.max(sy, Number(from.slice(0, 4))); ; y++) {
+      const d = `${y}-${pad(sm)}-${pad(Math.min(sd, lastDay(y, sm)))}`;
+      if (d > end) break;
+      if (d >= from && d >= e.start_date) out.push(d);
+    }
+  }
+  return out;
+}
+function expensesTotal(from, to) {
+  let t = 0;
+  for (const e of db.all('SELECT * FROM expenses WHERE start_date <= ? AND (end_date IS NULL OR end_date >= ?)', to, from)) t += expenseDates(e, from, to).length * e.amount;
+  return round2(t);
+}
+export function listExpenses(q) {
+  const { from, to } = parseRange(q);
+  const rows = db.all('SELECT * FROM expenses WHERE start_date <= ? AND (end_date IS NULL OR end_date >= ?) ORDER BY start_date DESC, id DESC', to, from)
+    .map((e) => { const dates = expenseDates(e, from, to); return { ...e, category_label: EXPENSE_CATS[e.category] || 'Outros', hits: dates.length, dates, total: round2(dates.length * e.amount) }; })
+    .filter((e) => e.hits || e.recurrence !== 'once');
+  return { from, to, rows, total: round2(rows.reduce((a, e) => a + e.total, 0)), categories: EXPENSE_CATS };
+}
+export function saveExpense(b, id = null) {
+  const cur = id ? db.get('SELECT * FROM expenses WHERE id = ?', id) : null;
+  if (id && !cur) fail(404, 'Despesa não encontrada.');
+  const description = String(b.description ?? cur?.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
+  if (!description) fail(400, 'Descreva a despesa (ex.: Assinatura da ferramenta de e-mail).');
+  const amount = typeof b.amount === 'number' ? b.amount : b.amount !== undefined ? parseNum(b.amount) : cur?.amount;
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) fail(400, 'Informe o valor da despesa.');
+  const recurrence = RECUR.includes(b.recurrence) ? b.recurrence : cur?.recurrence || 'once';
+  const start = b.start_date ?? cur?.start_date;
+  if (!isDate(start)) fail(400, recurrence === 'once' ? 'Informe a data da despesa.' : 'Informe a data da primeira cobrança.');
+  let end = b.end_date === undefined ? cur?.end_date ?? null : b.end_date || null;
+  if (recurrence === 'once') end = null;
+  if (end && (!isDate(end) || end < start)) fail(400, 'A data de encerramento precisa ser depois da primeira cobrança.');
+  const category = EXPENSE_CATS[b.category] ? b.category : cur?.category || 'outros';
+  const note = String(b.note ?? cur?.note ?? '').trim().slice(0, 300) || null;
+  const t = now();
+  if (cur) db.run('UPDATE expenses SET description=?, category=?, amount=?, start_date=?, recurrence=?, end_date=?, note=?, updated_at=? WHERE id=?', description, category, round2(amount), start, recurrence, end, note, t, id);
+  else id = db.run('INSERT INTO expenses (description, category, amount, start_date, recurrence, end_date, note, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)', description, category, round2(amount), start, recurrence, end, note, t, t).lastInsertRowid;
+  return db.get('SELECT * FROM expenses WHERE id = ?', Number(id));
+}
+export function deleteExpense(id) {
+  const e = db.get('SELECT * FROM expenses WHERE id = ?', id);
+  if (!e) fail(404, 'Despesa não encontrada.');
+  db.run('DELETE FROM expenses WHERE id = ?', id);
+  return e;
+}
 
 export function addSpend(body) {
   const from = body.date, to = body.date_to || body.date;

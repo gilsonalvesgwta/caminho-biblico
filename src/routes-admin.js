@@ -15,7 +15,7 @@ import { connect as metaConnect, disconnect as metaDisconnect, syncMeta, metaSta
 import { metaReport } from './meta-report.js';
 import { waStatus, saveConfig as waSave, listInstances, createInstance, connectQr, queueWhatsApp, resend as waResend, normalizePhone } from './whatsapp.js';
 import { sanitizeBlocks, studentBlockAnswers, FILE_TYPES } from './blocks.js';
-import { financeReport, addSpend, importMetaCsv, listSpend, deleteSpend } from './finance.js';
+import { financeReport, addSpend, importMetaCsv, listSpend, deleteSpend, listExpenses, saveExpense, deleteExpense } from './finance.js';
 
 const page = (q) => { const p = Math.max(1, Number(q.page || 1)); const size = Math.min(200, Math.max(10, Number(q.size || 25))); return { limit: size, offset: (p - 1) * size, page: p, size }; };
 const sinceDays = (d) => new Date(Date.now() - d * 86400e3).toISOString();
@@ -88,6 +88,11 @@ export function registerAdminRoutes(r) {
 
   // ---------- financeiro e marketing ----------
   r.get('/api/admin/finance', (req) => { requireAdmin(req, 'admin'); return financeReport(req.query); });
+  // outras despesas (ferramentas, equipe, serviços...)
+  r.get('/api/admin/expenses', (req) => { requireAdmin(req, 'admin'); return listExpenses(req.query); });
+  r.post('/api/admin/expenses', (req) => { requireAdmin(req, 'admin'); const e = saveExpense(req.body || {}); audit(req, 'expense.create', e.id, { description: e.description, amount: e.amount, recurrence: e.recurrence }); return { ok: true, expense: e }; });
+  r.put('/api/admin/expenses/:id', (req) => { requireAdmin(req, 'admin'); const e = saveExpense(req.body || {}, Number(req.params.id)); audit(req, 'expense.update', e.id, { description: e.description, amount: e.amount, recurrence: e.recurrence }); return { ok: true, expense: e }; });
+  r.delete('/api/admin/expenses/:id', (req) => { requireAdmin(req, 'admin'); const e = deleteExpense(Number(req.params.id)); audit(req, 'expense.delete', e.id, { description: e.description }); return { ok: true }; });
   r.get('/api/admin/marketing/spend', (req) => { requireAdmin(req, 'admin'); return { rows: listSpend(req.query) }; });
   r.post('/api/admin/marketing/spend', (req) => {
     requireAdmin(req, 'admin');
@@ -733,8 +738,8 @@ export function registerAdminRoutes(r) {
     const body = { ...(req.body || {}) };
     for (const k of ['brand_logo', 'brand_logo_wide', 'brand_logo_wide_dark', 'brand_app_icon']) delete body[k]; // só por upload
     for (const k of Object.keys(body)) if (k.startsWith('meta_') || k.startsWith('wa_')) delete body[k]; // só pelas telas de Anúncios e WhatsApp
-    for (const k of ['fee_percent', 'fee_fixed']) {
-      if (k in body) { const v = Number(String(body[k]).replace(',', '.')); if (!Number.isFinite(v) || v < 0 || v > (k === 'fee_percent' ? 50 : 1000)) fail(400, 'Taxa inválida.'); body[k] = String(v); }
+    for (const k of ['fee_percent', 'fee_fixed', 'tax_percent']) {
+      if (k in body) { const v = Number(String(body[k]).replace(',', '.') || 0); if (!Number.isFinite(v) || v < 0 || v > (k === 'fee_fixed' ? 1000 : 50)) fail(400, k === 'tax_percent' ? 'Percentual de impostos inválido (0 a 50%).' : 'Taxa inválida.'); body[k] = String(v); }
     }
     setSettings(body);
     audit(req, 'settings.update', null, { keys: Object.keys(body) });
