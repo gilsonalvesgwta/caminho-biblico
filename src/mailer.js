@@ -7,14 +7,14 @@ import { config } from './config.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /** Layout de e-mail (tabela, inline, compatível com Gmail/Outlook) */
-export function emailLayout({ preheader = '', heading, paragraphs = [], cta, footnote }) {
+export function emailLayout({ preheader = '', heading, paragraphs = [], cta, footnote, brand }) {
   const s = getSettings();
   const btn = cta ? `<tr><td style="padding:8px 0 24px"><a href="${esc(cta.url)}" style="display:inline-block;background:#C9A45C;color:#0B1A2A;text-decoration:none;font-weight:700;padding:14px 26px;border-radius:999px;font-family:Arial,sans-serif;font-size:15px">${esc(cta.label)}</a></td></tr>` : '';
   return `<!doctype html><html><body style="margin:0;background:#EEF1EC;padding:0">
 <span style="display:none;max-height:0;overflow:hidden">${esc(preheader)}</span>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF1EC;padding:32px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:18px;overflow:hidden">
-<tr><td style="background:#0B1A2A;padding:26px 32px;color:#E9D8B0;font-family:Georgia,serif;font-size:18px;letter-spacing:.5px">${esc(s.brand_name)}</td></tr>
+<tr><td style="background:#0B1A2A;padding:26px 32px;color:#E9D8B0;font-family:Georgia,serif;font-size:18px;letter-spacing:.5px">${esc(brand || s.brand_name)}</td></tr>
 <tr><td style="padding:32px 32px 8px;font-family:Arial,sans-serif;color:#1C2A36">
 <h1 style="font-family:Georgia,serif;font-weight:normal;font-size:26px;line-height:1.25;margin:0 0 18px;color:#0B1A2A">${esc(heading)}</h1>
 <table role="presentation" width="100%">${paragraphs.map((p) => `<tr><td style="font-size:15px;line-height:1.65;padding:0 0 14px">${p}</td></tr>`).join('')}${btn}</table>
@@ -27,9 +27,12 @@ function htmlToText(html) {
   return html.replace(/<a [^>]*href="([^"]+)"[^>]*>([^<]*)<\/a>/g, '$2: $1').replace(/<br\s*\/?>/g, '\n').replace(/<\/(p|tr|h1)>/g, '\n').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\n{3,}/g, '\n\n').trim();
 }
 
-export async function sendEmail({ to, subject, html, text, userId, kind = 'generic', ref = '' }) {
+/** Nome do remetente: e-mails de um produto saem com o nome do produto (o aluno reconhece o que comprou) */
+export const senderName = (product) => product ? (product.short_name || product.name) : null;
+
+export async function sendEmail({ to, subject, html, text, userId, kind = 'generic', ref = '', fromName }) {
   const s = getSettings();
-  const from = { name: s.email_from_name || s.brand_name, address: s.email_from_address };
+  const from = { name: String(fromName || s.email_from_name || s.brand_name || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 120), address: s.email_from_address };
   text = text || htmlToText(html);
   let status = 'sent', error = null;
   try {
@@ -39,7 +42,7 @@ export async function sendEmail({ to, subject, html, text, userId, kind = 'gener
     if (provider === 'resend') await sendResend(s, from, to, subject, html, text);
     else if (provider === 'brevo') await sendBrevo(s, from, to, subject, html, text);
     else if (provider === 'smtp') await sendSmtp(s, from, to, subject, html, text);
-    else { status = 'logged'; console.log(`[email:log] para=${to} assunto="${subject}"\n${text}\n`); }
+    else { status = 'logged'; console.log(`[email:log] de="${from.name}" para=${to} assunto="${subject}"\n${text}\n`); }
   } catch (e) {
     status = 'failed'; error = String(e.message || e).slice(0, 500);
     console.error('[email] falha:', error);
@@ -56,7 +59,7 @@ async function sendResend(s, from, to, subject, html, text) {
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${s.resend_api_key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: `${from.name} <${from.address}>`, to: [to], subject, html, text, reply_to: s.support_email || undefined }),
+    body: JSON.stringify({ from: `"${String(from.name).replace(/["\\\r\n]/g, '')}" <${from.address}>`, to: [to], subject, html, text, reply_to: s.support_email || undefined }),
     signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) throw new Error(`Resend ${r.status}: ${(await r.text()).slice(0, 200)}`);
@@ -75,6 +78,8 @@ async function sendBrevo(s, from, to, subject, html, text) {
 // ---------- SMTP mínimo (465 TLS implícito ou 587 STARTTLS) ----------
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
 const encHeader = (s) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${b64(s)}?=`);
+// nome do remetente: ":" "," e acentos (comuns em nome de produto) quebrariam o cabeçalho From
+const encName = (s) => (/^[A-Za-z0-9 !#$%&'*+\-/=?^_`{|}~.]*$/.test(s) ? s : `=?UTF-8?B?${b64(s)}?=`);
 
 function smtpSession(socket) {
   let buf = '';
@@ -141,7 +146,7 @@ async function sendSmtp(s, from, to, subject, html, text) {
   await sess.cmd('DATA', [354]);
   const boundary = 'b' + Math.random().toString(36).slice(2);
   const msg = [
-    `From: ${encHeader(from.name)} <${from.address}>`, `To: <${to}>`, `Subject: ${encHeader(subject)}`,
+    `From: ${encName(from.name)} <${from.address}>`, `To: <${to}>`, `Subject: ${encHeader(subject)}`,
     `Date: ${new Date().toUTCString()}`, `Message-ID: <${Date.now()}.${Math.random().toString(36).slice(2)}@${from.address.split('@')[1]}>`,
     'MIME-Version: 1.0', `Content-Type: multipart/alternative; boundary="${boundary}"`, '',
     `--${boundary}`, 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '', b64(text).replace(/.{76}/g, '$&\r\n'),
@@ -169,15 +174,16 @@ export function accessEmail({ name, link, isNew, product }) {
       ],
       cta: { label: 'Acessar e criar minha senha', url: link },
       footnote: 'Este link é pessoal e vale por 72 horas. Depois disso, use "Esqueci minha senha" na tela de login.',
+      brand: product?.name,
     }),
   };
 }
 
-export function resetEmail({ name, link }) {
+export function resetEmail({ name, link, product }) {
   const first = (name || '').split(' ')[0] || 'olá';
   return {
-    subject: 'Redefinição de senha',
-    html: emailLayout({ heading: `${esc(first)}, vamos redefinir a sua senha`, paragraphs: ['Recebemos um pedido para redefinir a sua senha. Se não foi você, ignore este e-mail.'], cta: { label: 'Criar nova senha', url: link }, footnote: 'O link vale por 2 horas.' }),
+    subject: product ? `Redefinição de senha: ${product.short_name || product.name}` : 'Redefinição de senha',
+    html: emailLayout({ heading: `${esc(first)}, vamos redefinir a sua senha`, paragraphs: ['Recebemos um pedido para redefinir a sua senha. Se não foi você, ignore este e-mail.'], cta: { label: 'Criar nova senha', url: link }, footnote: 'O link vale por 2 horas.', brand: product?.name }),
   };
 }
 
@@ -190,6 +196,7 @@ export function productAccessEmail({ name, product, link }) {
       heading: `${esc(first)}, você tem um novo conteúdo.`,
       paragraphs: [`O acesso a <b>${esc(product.name)}</b> foi liberado na sua conta.`, 'Entre com o mesmo e-mail e a mesma senha de sempre. Ele aparece na sua área, ao lado dos outros conteúdos.'],
       cta: { label: `Acessar ${product.short_name || product.name}`, url: link },
+      brand: product.name,
     }),
   };
 }
@@ -201,6 +208,6 @@ export function releaseEmail({ name, lesson, product, link }) {
   const unit = product?.unit_label || 'Dia';
   return {
     subject: `${unit} ${lesson.number} liberado: ${lesson.title}`,
-    html: emailLayout({ preheader: lesson.subtitle || '', heading: `${unit} ${lesson.number}: ${esc(lesson.title)}`, paragraphs: paras, cta: { label: `Abrir ${unit === 'Aula' || unit === 'Lição' ? 'a' : 'o'} ${unit} ${lesson.number}`, url: link || `${config.appUrl}/dia/${lesson.number}` } }),
+    html: emailLayout({ preheader: lesson.subtitle || '', heading: `${unit} ${lesson.number}: ${esc(lesson.title)}`, paragraphs: paras, cta: { label: `Abrir ${unit === 'Aula' || unit === 'Lição' ? 'a' : 'o'} ${unit} ${lesson.number}`, url: link || `${config.appUrl}/dia/${lesson.number}` }, brand: product?.name }),
   };
 }

@@ -1,7 +1,7 @@
 import { db, now, getSettings } from './db.js';
 import { config } from './config.js';
 import { issueUserToken } from './auth.js';
-import { sendEmail, accessEmail, releaseEmail, productAccessEmail } from './mailer.js';
+import { sendEmail, accessEmail, releaseEmail, productAccessEmail, senderName } from './mailer.js';
 import { emit } from './events.js';
 import { queueWhatsApp, lastProduct } from './whatsapp.js';
 import { compute } from '../public/shared/calc.js';
@@ -67,7 +67,7 @@ export async function sendAccessEmail(user, { isNew = true, whatsapp = true, pro
   // WhatsApp em paralelo, com o mesmo link (vai para a fila e não atrasa o e-mail)
   const wa = whatsapp ? queueWhatsApp({ user, kind: 'access', link, product }) : null;
   const { subject, html } = accessEmail({ name: user.name, link, isNew, product });
-  const r = await sendEmail({ to: user.email, subject, html, userId: user.id, kind: 'access', ref: String(Date.now()) });
+  const r = await sendEmail({ to: user.email, subject, html, userId: user.id, kind: 'access', ref: String(Date.now()), fromName: senderName(product) });
   return { ...r, link, whatsapp: wa?.status || null };
 }
 
@@ -77,7 +77,7 @@ export async function sendProductAccessEmail(user, product, { whatsapp = true } 
   const link = `${config.appUrl}/p/${product.slug}`;
   const wa = whatsapp ? queueWhatsApp({ user, kind: 'product', link, product }) : null;
   const { subject, html } = productAccessEmail({ name: user.name, product, link });
-  const r = await sendEmail({ to: user.email, subject, html, userId: user.id, kind: 'product_access', ref: `${product.id}:${Date.now()}` });
+  const r = await sendEmail({ to: user.email, subject, html, userId: user.id, kind: 'product_access', ref: `${product.id}:${Date.now()}`, fromName: senderName(product) });
   return { ...r, whatsapp: wa?.status || null };
 }
 
@@ -181,7 +181,7 @@ export async function processReleases() {
         whatsapp_message: (lesson.release_message || '').replace(/\[nome\]/gi, first).replace(/\[link\]/gi, link) });
       if (s.release_emails === 'true') {
         const { subject, html } = releaseEmail({ name: e.name, lesson, product, link });
-        await sendEmail({ to: e.email, subject, html, userId: e.user_id, kind: 'release', ref });
+        await sendEmail({ to: e.email, subject, html, userId: e.user_id, kind: 'release', ref, fromName: senderName(product) });
       }
       sent++;
     }

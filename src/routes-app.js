@@ -1,7 +1,8 @@
 import { db, now, getSettings } from './db.js';
 import { fail, rateLimit } from './http.js';
 import { createSession, destroySession, requireUser, verifyPassword, hashPassword, validatePassword, consumeUserToken, markTokenUsed, issueUserToken } from './auth.js';
-import { sendEmail, resetEmail } from './mailer.js';
+import { sendEmail, resetEmail, senderName } from './mailer.js';
+import { lastProduct } from './whatsapp.js';
 import { config } from './config.js';
 import { normEmail, jparse, lessonStates, refreshSummary, nextLive, rulesFromSettings, loadAnswers, productPublic } from './services.js';
 import { emit } from './events.js';
@@ -56,8 +57,9 @@ export function registerAppRoutes(r) {
     if (user && hasAccess && user.status === 'active') {
       rateLimit(`forgot-user:${user.id}`, 3, 60 * 60e3);
       const token = issueUserToken(user.id, user.password_hash ? 'reset' : 'access', user.password_hash ? 2 : 72);
-      const { subject, html } = resetEmail({ name: user.name, link: `${config.appUrl}/acesso?t=${token}` });
-      await sendEmail({ to: user.email, subject, html, userId: user.id, kind: 'reset', ref: String(Date.now()) });
+      const product = lastProduct(user.id);
+      const { subject, html } = resetEmail({ name: user.name, link: `${config.appUrl}/acesso?t=${token}`, product });
+      await sendEmail({ to: user.email, subject, html, userId: user.id, kind: 'reset', ref: String(Date.now()), fromName: senderName(product) });
     }
     // resposta sempre igual: não revela se o e-mail existe
     return { ok: true, message: 'Se este e-mail tiver um acesso ativo, você vai receber um link em instantes. Confira também a caixa de spam e promoções.' };

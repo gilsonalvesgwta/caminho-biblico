@@ -418,6 +418,13 @@ try {
   const waProd = txt.match(/acesso a \*([^*]+)\* já está liberado/);
   assert.ok(waProd, 'mensagem cita o produto comprado'); assert.notEqual(waProd[1], waBrand); assert.ok(!/\[(produto|plataforma)\]/.test(txt));
   assert.match(waProd[1], /Desafio de 7 Dias/, 'nome completo do produto comprado');
+  // e-mail de acesso: remetente, assunto e cabeçalho com o produto, não com a plataforma
+  const mailLog = logs.split('[email:log]').find((x) => x.includes('para=joana@teste.com'));
+  assert.ok(mailLog, 'e-mail de acesso da Joana registrado');
+  const mailFrom = mailLog.match(/de="([^"]*)"/)[1];
+  assert.ok(mailFrom !== waBrand && waProd[1].includes(mailFrom), `remetente é o produto (${mailFrom})`);
+  assert.match(mailLog, /assunto="Seu acesso chegou: [^"]*Desafio de 7 Dias"/);
+  assert.ok(mailLog.split('\n').slice(1, 4).some((l) => /^O Caminho Bíblico do Dinheiro: Desafio de 7 Dias$/.test(l.trim())), 'cabeçalho do e-mail com o nome do produto');
   // a Greenn reenvia o mesmo aviso: não duplica
   await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9800, amount: 27, method: 'PIX' }, client: { name: 'Joana Compradora', email: 'joana@teste.com', cellphone: '+55 (21) 98888-7777' } });
   await new Promise((r) => setTimeout(r, 300));
