@@ -102,6 +102,15 @@ Copie `data/backups` para fora da VPS (S3, Backblaze, Google Drive via rclone). 
 
 Em **Editar aula › Conteúdo e blocos** o produtor monta a aula com: Texto (negrito, itálico, links e listas), Materiais e links (com upload de PDF, Word, Excel, PowerPoint, ZIP, imagem, MP3/M4A, CSV ou TXT até 30 MB), Exercício (respostas salvas automaticamente), Tarefas (checklist), Destaque (dica, atenção, importante), Vídeo extra, Botão, Citações e Pontos-chave. Exercícios e tarefas podem ser **obrigatórios para concluir**. As respostas aparecem na ficha do aluno. Os títulos das seções fixas de citações e pontos-chave são definidos por produto.
 
+## 2e. Anúncios (Meta Ads)
+
+Menu **Anúncios**. Conexão por token de usuário do sistema (permissão `ads_read`), guardado criptografado (AES-256-GCM; chave em `DATA_DIR/.secret-key` ou na variável `APP_SECRET`).
+- Sincroniza sozinho a cada 6 h (configurável de 1 a 24 h): contas, campanhas, conjuntos, anúncios e métricas diárias por anúncio. Cada rodada recalcula os últimos 7 dias; o histórico completo (padrão 90 dias) entra na conexão ou sob demanda.
+- Vendas reais da Greenn ligadas ao anúncio pelos UTMs (`utm_campaign`, `utm_medium`, `utm_content` com `nome|id`, ou pelo nome da campanha). O modelo de parâmetros de URL aparece na tela de conexão.
+- Painel com filtros (período, conta, campanha, conjunto, anúncio, status, padrão salvo), visões prontas (Visão geral, Criativos, Funil, Meta × Real) e visões personalizadas (indicadores e colunas), gráfico, funil e tabelas com exportação CSV.
+- O gasto da Meta alimenta o Financeiro automaticamente (o CSV importado do mesmo dia é ignorado para não duplicar). Cada campanha pode ser vinculada a um produto.
+- Versão da API: v26.0 (setting `meta_api_version`). Para testes: `node scripts/fake-meta.js 4999` e `META_GRAPH_URL=http://127.0.0.1:4999`.
+
 ## 3. Como a liberação funciona
 
 - Pagamento aprovado na Greenn → webhook → cadastro do aluno + inscrição → e-mail com link para criar a senha (vale 72h; depois o aluno usa "Primeiro acesso / esqueci a senha").

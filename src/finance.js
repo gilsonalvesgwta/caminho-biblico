@@ -8,10 +8,10 @@ const TZ_OFFSET_H = 3;
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 /** Dia local (Brasília) de agora ± n dias */
 export const localDay = (deltaDays = 0) => new Date(Date.now() - TZ_OFFSET_H * 3600e3 + deltaDays * 86400e3).toISOString().slice(0, 10);
-const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400e3).toISOString().slice(0, 10);
-const dayDiff = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400e3);
+export const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400e3).toISOString().slice(0, 10);
+export const dayDiff = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400e3);
 /** Início do dia local em UTC ISO */
-const startIso = (d) => new Date(Date.parse(`${d}T00:00:00Z`) + TZ_OFFSET_H * 3600e3).toISOString();
+export const startIso = (d) => new Date(Date.parse(`${d}T00:00:00Z`) + TZ_OFFSET_H * 3600e3).toISOString();
 
 export function parseRange(q = {}) {
   let from = q.from, to = q.to;
@@ -24,11 +24,13 @@ export function parseRange(q = {}) {
   return { from, to, days: dayDiff(from, to) + 1 };
 }
 
-const APPROVED = "('paid','refunded','chargedback')";
-const SALE_DAY = `COALESCE(paid_at, created_at)`;
+export const APPROVED = "('paid','refunded','chargedback')";
+/** Quando a integração da Meta já trouxe o gasto de um dia, o CSV importado desse dia é ignorado (evita contar duas vezes) */
+const NO_DUP = "NOT (source = 'meta_csv' AND date IN (SELECT DISTINCT date FROM ad_spend WHERE source = 'meta'))";
+export const SALE_DAY = `COALESCE(paid_at, created_at)`;
 
 /** Expressão SQL do líquido de cada venda: o real enviado pela Greenn ou a estimativa pela taxa configurada */
-function netExpr() {
+export function netExpr() {
   const s = getSettings();
   const pctFee = Math.max(0, Number(String(s.fee_percent).replace(',', '.')) || 0);
   const fixed = Math.max(0, Number(String(s.fee_fixed).replace(',', '.')) || 0);
@@ -49,7 +51,7 @@ function totals(from, to) {
   const pend = db.get("SELECT COUNT(*) c, COALESCE(SUM(amount),0) v FROM sales WHERE status = 'waiting_payment' AND created_at >= ? AND created_at < ?", a, b);
   const refused = db.get("SELECT COUNT(*) c FROM sales WHERE status = 'refused' AND created_at >= ? AND created_at < ?", a, b).c;
   const abandoned = db.get('SELECT COUNT(*) c FROM leads WHERE created_at >= ? AND created_at < ? AND converted = 0', a, b).c;
-  const spend = db.get('SELECT COALESCE(SUM(spend),0) v, COALESCE(SUM(impressions),0) imp, COALESCE(SUM(clicks),0) clk FROM ad_spend WHERE date >= ? AND date <= ?', from, to);
+  const spend = db.get(`SELECT COALESCE(SUM(spend),0) v, COALESCE(SUM(impressions),0) imp, COALESCE(SUM(clicks),0) clk FROM ad_spend WHERE date >= ? AND date <= ? AND ${NO_DUP}`, from, to);
   const fees = Math.max(0, r.kept_v - r.net);
   const profit = r.net - spend.v;
   return {
@@ -85,7 +87,7 @@ export function financeReport(q) {
 
   const salesDaily = db.all(`SELECT ${DAY} d, COUNT(*) c, SUM(amount) gross, SUM(CASE WHEN status = 'paid' THEN ${NET} ELSE 0 END) net
     FROM sales WHERE status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ? GROUP BY d`, a, b);
-  const spendDaily = db.all('SELECT date d, SUM(spend) v FROM ad_spend WHERE date >= ? AND date <= ? GROUP BY date', from, to);
+  const spendDaily = db.all(`SELECT date d, SUM(spend) v FROM ad_spend WHERE date >= ? AND date <= ? AND ${NO_DUP} GROUP BY date`, from, to);
   const sm = new Map(salesDaily.map((x) => [x.d, x])), pm = new Map(spendDaily.map((x) => [x.d, x.v]));
   const series = [];
   for (let d = from; d <= to; d = addDays(d, 1)) series.push({ d, c: sm.get(d)?.c || 0, gross: sm.get(d)?.gross || 0, net: sm.get(d)?.net || 0, spend: pm.get(d) || 0 });
@@ -103,7 +105,7 @@ export function financeReport(q) {
     o.c += r.c; o.gross += r.gross; o.refunds += r.refunds; o.net += r.net; byP.set(key, o);
   }
   let spendUnassigned = 0;
-  for (const s of db.all('SELECT product_id, SUM(spend) v FROM ad_spend WHERE date >= ? AND date <= ? GROUP BY product_id', from, to)) {
+  for (const s of db.all(`SELECT product_id, SUM(spend) v FROM ad_spend WHERE date >= ? AND date <= ? AND ${NO_DUP} GROUP BY product_id`, from, to)) {
     if (!s.product_id) { spendUnassigned += s.v; continue; }
     const key = `p${s.product_id}`;
     const o = byP.get(key) || { productId: s.product_id, name: db.get('SELECT name FROM products WHERE id = ?', s.product_id)?.name || 'Produto', c: 0, gross: 0, refunds: 0, net: 0, spend: 0 };

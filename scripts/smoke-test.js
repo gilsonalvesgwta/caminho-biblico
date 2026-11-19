@@ -6,6 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { compute } from '../public/shared/calc.js';
+import { startFakeMeta, VALID_TOKEN } from './fake-meta.js';
+
+const META_PORT = 3991;
+const fakeMeta = startFakeMeta(META_PORT);
 
 const PORT = 3990;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -13,7 +17,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'caminho-teste-'));
 let logs = '';
 
 const srv = spawn(process.execPath, ['--no-warnings', 'server.js'], {
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, APP_URL: BASE, ADMIN_EMAIL: 'dono@teste.com', ADMIN_PASSWORD: 'senha-forte-123', NODE_ENV: 'production', SCHEDULER_MINUTES: '60' },
+  env: { ...process.env, META_GRAPH_URL: `http://127.0.0.1:${META_PORT}`, PORT: String(PORT), DATA_DIR: dataDir, APP_URL: BASE, ADMIN_EMAIL: 'dono@teste.com', ADMIN_PASSWORD: 'senha-forte-123', NODE_ENV: 'production', SCHEDULER_MINUTES: '60' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 srv.stdout.on('data', (d) => (logs += d));
@@ -275,6 +279,58 @@ try {
   assert.equal((await call('x', 'GET', '/api/app/brand')).json.brand_logo, '');
   step('logo da plataforma: enviar, aplicar, bloquear SVG perigoso e remover');
 
+  // ---------- Meta Ads (API simulada) ----------
+  assert.equal((await call('admin', 'GET', '/api/admin/meta/status')).json.connected, false);
+  assert.match((await call('admin', 'POST', '/api/admin/meta/connect', { token: 'EAAB-token-errado-000000000000' })).json.error, /expirou|revogado/);
+  const m_mc = (await call('admin', 'POST', '/api/admin/meta/connect', { token: VALID_TOKEN })).json;
+  assert.equal(m_mc.accounts, 2);
+  let m_ms;
+  for (let i = 0; i < 150; i++) { m_ms = (await call('admin', 'GET', '/api/admin/meta/status')).json; if (!m_ms.syncing && m_ms.log.length) break; await new Promise((r) => setTimeout(r, 200)); }
+  assert.equal(m_ms.connected, true); assert.equal(m_ms.tokenHint.includes('…'), true);
+  assert.deepEqual(m_ms.accounts.map((a) => a.enabled), [1, 0]);
+  assert.equal(m_ms.log[0].status, 'ok', m_ms.log[0].message); assert.ok(m_ms.log[0].rows > 100);
+  assert.ok(fakeMeta.calls.filter((c) => c.endsWith('/insights')).length >= 4, 'repetiu após o limite de taxa e percorreu as páginas');
+  for (const f of fs.readdirSync(dataDir).filter((x) => x.startsWith('app.db'))) assert.ok(!fs.readFileSync(path.join(dataDir, f)).includes(VALID_TOKEN), 'token guardado criptografado');
+  assert.ok(!JSON.stringify((await call('admin', 'GET', '/api/admin/settings')).json).includes('meta_token'));
+  step('Meta: conexão, contas, sincronização completa com paginação e nova tentativa, token criptografado');
+
+  const m_metaSale = async (id, metas) => call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id, amount: 27, method: 'PIX' }, saleMetas: metas, client: { name: 'Lead Meta', email: `meta${id}@teste.com` } });
+  await m_metaSale(9700, [{ meta_key: 'utm_source', meta_value: 'FB' }, { meta_key: 'utm_campaign', meta_value: 'Desafio 7 Dias · Público Frio|120200000000000001' }, { meta_key: 'utm_medium', meta_value: 'Interesses · Finanças 25-45|120210000000000011' }, { meta_key: 'utm_content', meta_value: 'Vídeo · Depoimento Maria|120220000000000111' }]);
+  await m_metaSale(9701, [{ meta_key: 'utm_source', meta_value: 'FB' }, { meta_key: 'utm_campaign', meta_value: 'Desafio 7 Dias · Remarketing' }]);
+  await m_metaSale(9702, []);
+  const m_rep = async (q = '') => (await call('admin', 'GET', `/api/admin/meta/report?from=${today}&to=${today}${q}`)).json;
+  const m_r0 = await m_rep();
+  assert.ok(m_r0.totals.spend > 0 && m_r0.totals.impressions > 0 && m_r0.totals.lpv > 0);
+  assert.equal(m_r0.totals.sales, 2); assert.equal(m_r0.totals.revenue, 54);
+  near(m_r0.totals.roas, 54 / m_r0.totals.spend, 'ROAS atribuído'); near(m_r0.totals.cpa, m_r0.totals.spend / 2, 'CPA');
+  assert.ok(m_r0.blended.sales > m_r0.totals.sales && m_r0.unattributed.sales >= 1);
+  assert.equal(m_r0.rows.campaigns.length, 2); assert.ok(m_r0.rows.ads.every((a) => a.thumbnail)); assert.equal(m_r0.series.length, 1);
+  const m_r1 = await m_rep('&ad=120220000000000111');
+  assert.equal(m_r1.totals.sales, 1); assert.equal(m_r1.rows.ads.length, 1); assert.ok(m_r1.totals.spend < m_r0.totals.spend);
+  const m_r2 = await m_rep('&campaign=120200000000000002');
+  assert.equal(m_r2.totals.sales, 1, 'venda atribuída pelo nome da campanha');
+  assert.equal((await m_rep('&status=paused')).rows.campaigns.length, 0);
+  const m_f30 = await m_rep(''); void m_f30;
+  const m_finToday = (await call('admin', 'GET', `/api/admin/finance?from=${today}&to=${today}`)).json;
+  near(m_finToday.cur.spend, m_r0.totals.spend, 'Financeiro usa o gasto da Meta e ignora o CSV do mesmo dia');
+  assert.equal((await call('admin', 'PUT', '/api/admin/meta/campaigns/120200000000000001', { product_id: 1 })).status, 200);
+  const m_fin2 = (await call('admin', 'GET', `/api/admin/finance?from=${today}&to=${today}`)).json;
+  assert.ok(m_fin2.byProduct.some((p) => p.productId === 1 && p.spend > 0), 'campanha vinculada ao produto');
+  step('Meta: vendas reais atribuídas por id e por nome do UTM, filtros, ROAS/CPA e integração com o Financeiro');
+
+  assert.equal((await call('admin', 'PUT', '/api/admin/meta/settings', { sync_hours: 25 })).status, 400);
+  assert.equal((await call('admin', 'PUT', '/api/admin/meta/settings', { sync_hours: 12, history_days: 60 })).status, 200);
+  assert.equal((await call('admin', 'GET', '/api/admin/meta/status')).json.syncHours, 12);
+  await call('admin', 'PUT', '/api/admin/meta/prefs', { prefs: { v: 1, views: [{ id: 'x', name: 'Minha visão', kpis: ['spend', 'roas'] }] } });
+  assert.equal((await call('admin', 'GET', '/api/admin/meta/prefs')).json.prefs.views[0].name, 'Minha visão');
+  assert.equal((await call('admin', 'PUT', '/api/admin/meta/accounts/act_2222222222', { enabled: true })).status, 200);
+  assert.equal((await call('user', 'GET', '/api/admin/meta/report')).status, 401);
+  assert.equal((await call('admin', 'POST', '/api/admin/meta/disconnect')).status, 200);
+  assert.equal((await call('admin', 'GET', '/api/admin/meta/status')).json.connected, false);
+  assert.ok((await m_rep()).totals.spend > 0, 'dados continuam depois de desconectar');
+  assert.equal((await call('admin', 'POST', '/api/admin/meta/sync', {})).status, 400);
+  step('Meta: configurações, preferências do painel, permissões e desconexão');
+
   for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/shared/player.js', '/shared/player.css', '/shared/pcard.js', '/shared/pcard.css', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
   step('arquivos do app e do painel');
   console.log('\nTodos os testes passaram.');
@@ -283,6 +339,7 @@ try {
   console.error('\n✗ FALHOU:', e.message, '\n--- logs do servidor ---\n' + logs.slice(-3000));
   process.exitCode = 1;
 } finally {
+  fakeMeta.srv.close();
   srv.kill('SIGTERM');
   fs.rmSync(dataDir, { recursive: true, force: true });
 }

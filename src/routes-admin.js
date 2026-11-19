@@ -11,6 +11,8 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { makeBackup, listBackups, backupDir } from './backup.js';
+import { connect as metaConnect, disconnect as metaDisconnect, syncMeta, metaStatus, rebuildSpend } from './meta.js';
+import { metaReport } from './meta-report.js';
 import { sanitizeBlocks, studentBlockAnswers, FILE_TYPES } from './blocks.js';
 import { financeReport, addSpend, importMetaCsv, listSpend, deleteSpend } from './finance.js';
 
@@ -104,6 +106,60 @@ export function registerAdminRoutes(r) {
     const out = importMetaCsv(req.body?.csv, req.body?.product_id || null);
     audit(req, 'marketing.import', null, out);
     return { ok: true, ...out };
+  });
+
+  // ---------- Meta Ads ----------
+  r.get('/api/admin/meta/status', (req) => { requireAdmin(req, 'admin'); return metaStatus(); });
+  r.post('/api/admin/meta/connect', async (req) => {
+    requireAdmin(req, 'owner');
+    const out = await metaConnect(req.body || {});
+    audit(req, 'meta.connect', null, { user: out.user, accounts: out.accounts });
+    syncMeta({ full: true, trigger: 'conexão' }); // primeira carga em segundo plano
+    return { ok: true, ...out };
+  });
+  r.post('/api/admin/meta/disconnect', (req) => { requireAdmin(req, 'owner'); metaDisconnect(); audit(req, 'meta.disconnect'); return { ok: true }; });
+  r.put('/api/admin/meta/accounts/:id', (req) => {
+    requireAdmin(req, 'admin');
+    const acc = db.get('SELECT * FROM meta_accounts WHERE id = ?', req.params.id);
+    if (!acc) fail(404, 'Conta não encontrada.');
+    db.run('UPDATE meta_accounts SET enabled = ?, updated_at = ? WHERE id = ?', req.body.enabled ? 1 : 0, now(), acc.id);
+    audit(req, 'meta.account', null, { id: acc.id, enabled: !!req.body.enabled });
+    return { ok: true };
+  });
+  r.put('/api/admin/meta/settings', (req) => {
+    requireAdmin(req, 'admin');
+    const h = Number(req.body.sync_hours), d = Number(req.body.history_days);
+    const out = {};
+    if (req.body.sync_hours !== undefined) { if (!Number.isInteger(h) || h < 1 || h > 24) fail(400, 'Intervalo entre 1 e 24 horas.'); out.meta_sync_hours = String(h); }
+    if (req.body.history_days !== undefined) { if (!Number.isInteger(d) || d < 7 || d > 730) fail(400, 'Histórico entre 7 e 730 dias.'); out.meta_history_days = String(d); }
+    setSettings(out);
+    return { ok: true };
+  });
+  r.post('/api/admin/meta/sync', (req) => {
+    requireAdmin(req, 'admin');
+    if (!getSettings().meta_token_enc) fail(400, 'Conecte a Meta primeiro.');
+    syncMeta({ full: !!req.body?.full, trigger: req.body?.full ? 'manual (histórico completo)' : 'manual' });
+    audit(req, 'meta.sync', null, { full: !!req.body?.full });
+    return { ok: true, started: true };
+  });
+  r.put('/api/admin/meta/campaigns/:id', (req) => {
+    requireAdmin(req, 'admin');
+    const c = db.get('SELECT * FROM meta_campaigns WHERE id = ?', req.params.id);
+    if (!c) fail(404, 'Campanha não encontrada.');
+    const pid = req.body.product_id ? Number(req.body.product_id) : null;
+    if (pid && !db.get('SELECT 1 FROM products WHERE id = ?', pid)) fail(400, 'Produto inválido.');
+    db.run('UPDATE meta_campaigns SET product_id = ? WHERE id = ?', pid, c.id);
+    db.run("UPDATE ad_spend SET product_id = ? WHERE source = 'meta' AND campaign_id = ?", pid, c.id);
+    return { ok: true };
+  });
+  r.get('/api/admin/meta/report', (req) => { requireAdmin(req, 'admin'); return metaReport(req.query); });
+  r.get('/api/admin/meta/prefs', (req) => { requireAdmin(req, 'admin'); return { prefs: jparse(getSettings().meta_dash_prefs, null) }; });
+  r.put('/api/admin/meta/prefs', (req) => {
+    requireAdmin(req, 'admin');
+    const txt = JSON.stringify(req.body?.prefs ?? null);
+    if (txt.length > 60000) fail(400, 'Preferências muito grandes.');
+    setSettings({ meta_dash_prefs: txt });
+    return { ok: true };
   });
 
   // ---------- alunos ----------
@@ -556,6 +612,7 @@ export function registerAdminRoutes(r) {
   r.get('/api/admin/settings', (req) => {
     requireAdmin(req, 'admin');
     const s = getSettings({ maskSecrets: true });
+    for (const k of Object.keys(s)) if (k.startsWith('meta_')) delete s[k]; // credenciais e preferências da Meta ficam na tela de Anúncios
     const raw = getSettings();
     return { settings: s, webhookUrl: raw.greenn_webhook_token ? `${config.appUrl}/api/webhooks/greenn/${raw.greenn_webhook_token}` : null, appUrl: config.appUrl,
       outbox: db.get("SELECT SUM(status='pending') pending, SUM(status='failed') failed, SUM(status='sent') sent FROM outbox") };
@@ -564,6 +621,7 @@ export function registerAdminRoutes(r) {
     requireAdmin(req, 'admin');
     const body = { ...(req.body || {}) };
     for (const k of ['brand_logo', 'brand_logo_wide', 'brand_logo_wide_dark', 'brand_app_icon']) delete body[k]; // só por upload
+    for (const k of Object.keys(body)) if (k.startsWith('meta_')) delete body[k]; // só pela tela de Anúncios
     for (const k of ['fee_percent', 'fee_fixed']) {
       if (k in body) { const v = Number(String(body[k]).replace(',', '.')); if (!Number.isFinite(v) || v < 0 || v > (k === 'fee_percent' ? 50 : 1000)) fail(400, 'Taxa inválida.'); body[k] = String(v); }
     }

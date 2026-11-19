@@ -339,6 +339,30 @@ const migrations = [
     PRIMARY KEY (user_id, lesson_id, block_id)
   );
   `,
+  // 8: integração Meta Ads (contas, estrutura, métricas diárias por anúncio)
+  `
+  CREATE TABLE meta_accounts (id TEXT PRIMARY KEY, name TEXT, currency TEXT, timezone TEXT, account_status INTEGER, business_name TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1, last_sync_at TEXT, last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE TABLE meta_campaigns (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, name TEXT, objective TEXT, status TEXT, effective_status TEXT,
+    daily_budget REAL, lifetime_budget REAL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, updated_at TEXT NOT NULL);
+  CREATE TABLE meta_adsets (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, campaign_id TEXT, name TEXT, status TEXT, effective_status TEXT,
+    daily_budget REAL, lifetime_budget REAL, optimization_goal TEXT, updated_at TEXT NOT NULL);
+  CREATE TABLE meta_ads (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, campaign_id TEXT, adset_id TEXT, name TEXT, status TEXT, effective_status TEXT,
+    thumbnail_url TEXT, updated_at TEXT NOT NULL);
+  CREATE INDEX meta_adsets_campaign ON meta_adsets(campaign_id);
+  CREATE INDEX meta_ads_adset ON meta_ads(adset_id);
+  CREATE TABLE meta_insights (
+    date TEXT NOT NULL, ad_id TEXT NOT NULL, adset_id TEXT, campaign_id TEXT, account_id TEXT NOT NULL,
+    spend REAL NOT NULL DEFAULT 0, impressions INTEGER NOT NULL DEFAULT 0, reach INTEGER NOT NULL DEFAULT 0, clicks INTEGER NOT NULL DEFAULT 0,
+    link_clicks INTEGER NOT NULL DEFAULT 0, lpv INTEGER NOT NULL DEFAULT 0, video_3s INTEGER NOT NULL DEFAULT 0, thruplay INTEGER NOT NULL DEFAULT 0,
+    add_to_cart INTEGER NOT NULL DEFAULT 0, initiate_checkout INTEGER NOT NULL DEFAULT 0, leads INTEGER NOT NULL DEFAULT 0,
+    purchases INTEGER NOT NULL DEFAULT 0, purchase_value REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, ad_id)
+  );
+  CREATE INDEX meta_insights_account_date ON meta_insights(account_id, date);
+  CREATE INDEX meta_insights_campaign ON meta_insights(campaign_id, date);
+  CREATE TABLE meta_sync_log (id INTEGER PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL, trigger TEXT, message TEXT, rows INTEGER);
+  `,
 ];
 
 export function migrate() {
@@ -389,6 +413,9 @@ export const SETTING_DEFAULTS = {
   brand_app_icon: '', // ícone do celular (gerado a partir do ícone, com fundo da marca)
   fee_percent: '4.99', // taxa da plataforma de pagamento (%), usada quando a Greenn não envia o líquido
   fee_fixed: '1.00', // taxa fixa por venda (R$)
+  meta_token_enc: '', meta_token_hint: '', meta_app_secret_enc: '', meta_user_name: '', meta_connected_at: '',
+  meta_api_version: 'v26.0', meta_sync_hours: '6', meta_history_days: '90',
+  meta_last_sync_at: '', meta_last_attempt_at: '', meta_dash_prefs: '',
 };
 const SECRET_KEYS = new Set(['greenn_webhook_token', 'resend_api_key', 'brevo_api_key', 'smtp_pass', 'outbound_webhook_secret']);
 

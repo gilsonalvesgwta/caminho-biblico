@@ -13,6 +13,7 @@ import { handleWebhook } from './src/greenn.js';
 import { processReleases } from './src/services.js';
 import { flushOutbox } from './src/events.js';
 import { dailyBackupIfDue } from './src/backup.js';
+import { metaSyncIfDue } from './src/meta.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUB = path.join(ROOT, 'public');
@@ -118,6 +119,7 @@ async function tick() {
     if (n) console.log(`[agenda] ${n} liberação(ões) notificada(s)`);
     await flushOutbox();
     await dailyBackupIfDue();
+    metaSyncIfDue().catch((e) => console.error('[meta]', e.message)); // não bloqueia as outras tarefas
     cleanupSessions();
   } catch (e) { console.error('[agenda]', e); }
   finally { running = false; }
