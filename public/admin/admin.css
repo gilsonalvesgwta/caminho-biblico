@@ -423,3 +423,13 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .bulk-bar[hidden] { display: none; }
 .ad-only { margin-right: 6px; font-size: 13px; }
 .ad-thumb { background: linear-gradient(135deg, #EFEBE1, #E4DDCD); }
+
+/* Barras de filtro: campos de seleção com espaço para a seta, mesma altura da busca e acabamento consistente */
+.toolbar .input { height: 42px; }
+.toolbar select.input { padding: 0 38px 0 14px; background-position: right 14px center; background-size: 11px 7px; cursor: pointer; font-weight: 600; color: var(--text-2); min-width: 150px; max-width: 260px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+.toolbar select.input:hover { border-color: color-mix(in srgb, var(--gold-500) 55%, var(--line-strong)); }
+.toolbar .search { padding-left: 40px; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237C8893' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") no-repeat 14px center; }
+.toolbar > .faint { white-space: nowrap; }
+@media (max-width: 760px) { .toolbar select.input { flex: 1 1 100%; max-width: none; } .toolbar .search { max-width: none; flex-basis: 100%; } .toolbar > .faint { margin-left: 0 !important; white-space: normal; } }
+/* filtros da tela de Anúncios: mesma altura */
+.ad-sel select.input { height: 42px; padding-top: 0; padding-bottom: 0; padding-right: 38px; }
