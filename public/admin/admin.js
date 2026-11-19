@@ -192,7 +192,10 @@ function finRange() {
   const first = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-01`;
   switch (FIN.preset) {
     case 'today': return { from: today, to: today };
+    case 'yesterday': return { from: localDay(-1), to: localDay(-1) };
+    case '3': return { from: localDay(-2), to: today };
     case '7': return { from: localDay(-6), to: today };
+    case '60': return { from: localDay(-59), to: today };
     case '90': return { from: localDay(-89), to: today };
     case 'month': return { from: first(y, m), to: today };
     case 'last': { const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1; const end = new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10); return { from: first(py, pm), to: end }; }
@@ -271,7 +274,7 @@ async function pageFinance() {
   const rg = finRange();
   const [d, { rows: spend }, { rows: products }, exp] = await Promise.all([api(`/api/admin/finance?from=${rg.from}&to=${rg.to}`), api(`/api/admin/marketing/spend?from=${rg.from}&to=${rg.to}`), api('/api/admin/products'), api(`/api/admin/expenses?from=${rg.from}&to=${rg.to}`)]);
   const c = d.cur, p = d.prev;
-  const presets = [['today', 'Hoje'], ['7', '7 dias'], ['30', '30 dias'], ['month', 'Este mês'], ['last', 'Mês passado'], ['90', '90 dias'], ['custom', 'Personalizado']];
+  const presets = [['today', 'Hoje'], ['yesterday', 'Ontem'], ['3', '3 dias'], ['7', '7 dias'], ['30', '30 dias'], ['60', '60 dias'], ['90', '90 dias'], ['month', 'Este mês'], ['last', 'Mês passado'], ['custom', 'Personalizado']];
   const kpi = (label, value, sub, extra = '', cls = '') => `<div class="panel kpi c3 ${cls}"><div class="l">${label}${extra}</div><div class="v">${value}</div><div class="s">${sub}</div></div>`;
   const hasSpend = c.spend > 0, hasCosts = hasSpend || c.expenses > 0;
   const fallLine = (label, v, kind, hint = '') => `<div class="wf-row ${kind}"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span><div class="wf-bar"><i style="width:${c.gross ? Math.min(100, (Math.abs(v) / c.gross) * 100) : 0}%"></i></div><b>${kind === 'minus' || (kind === 'neg-total' && v < 0) ? '− ' : ''}${brl(Math.abs(v))}</b></div>`;

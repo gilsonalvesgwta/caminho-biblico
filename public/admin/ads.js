@@ -71,14 +71,16 @@ const valueOf = (key, totals, blended) => (key.startsWith('b_') ? (blended ? { b
 
 // ---------- datas ----------
 const localDay = (delta = 0) => new Date(Date.now() - 3 * 3600e3 + delta * 86400e3).toISOString().slice(0, 10);
-const PRESETS = [['today', 'Hoje'], ['yesterday', 'Ontem'], ['7', '7 dias'], ['14', '14 dias'], ['30', '30 dias'], ['month', 'Este mês'], ['last', 'Mês passado'], ['custom', 'Personalizado']];
+const PRESETS = [['today', 'Hoje'], ['yesterday', 'Ontem'], ['3', '3 dias'], ['7', '7 dias'], ['14', '14 dias'], ['30', '30 dias'], ['60', '60 dias'], ['month', 'Este mês'], ['last', 'Mês passado'], ['custom', 'Personalizado']];
 function rangeOf(f) {
   const t = localDay(0); const [y, m] = t.split('-').map(Number); const first = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-01`;
   switch (f.preset) {
     case 'today': return [t, t];
     case 'yesterday': return [localDay(-1), localDay(-1)];
     case '7': return [localDay(-6), t];
+    case '3': return [localDay(-2), t];
     case '14': return [localDay(-13), t];
+    case '60': return [localDay(-59), t];
     case 'month': return [first(y, m), t];
     case 'last': { const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1; return [first(py, pm), new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10)]; }
     case 'custom': return [f.from || localDay(-29), f.to || t];
