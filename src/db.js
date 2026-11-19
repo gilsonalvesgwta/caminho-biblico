@@ -368,6 +368,16 @@ const migrations = [
   ALTER TABLE sales ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;
   CREATE INDEX sales_is_test ON sales(is_test, status);
   `,
+  // 10: mensagens de WhatsApp (Evolution API), com fila e novas tentativas
+  `
+  CREATE TABLE wa_messages (
+    id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, phone TEXT, kind TEXT NOT NULL, text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0, error TEXT, message_id TEXT, ref TEXT,
+    next_try_at TEXT NOT NULL, created_at TEXT NOT NULL, sent_at TEXT
+  );
+  CREATE INDEX wa_messages_queue ON wa_messages(status, next_try_at);
+  CREATE INDEX wa_messages_user ON wa_messages(user_id, kind, created_at);
+  `,
 ];
 
 export function migrate() {
@@ -419,8 +429,11 @@ export const SETTING_DEFAULTS = {
   fee_percent: '4.99', // taxa da plataforma de pagamento (%), usada quando a Greenn não envia o líquido
   fee_fixed: '1.00', // taxa fixa por venda (R$)
   meta_token_enc: '', meta_token_hint: '', meta_app_secret_enc: '', meta_user_name: '', meta_connected_at: '',
-  meta_api_version: 'v26.0', meta_sync_hours: '6', meta_sync_minutes: '', meta_history_days: '90',
+  meta_api_version: 'v26.0', meta_sync_hours: '6', meta_sync_minutes: '', meta_history_days: '90', meta_sync_on_sale: 'true',
   meta_last_sync_at: '', meta_last_attempt_at: '', meta_dash_prefs: '',
+  wa_enabled: 'false', wa_url: '', wa_key_enc: '', wa_key_hint: '', wa_instance: '', wa_country: '55',
+  wa_tpl_access: 'Olá, [nome]! 🎉\n\nSua compra foi confirmada e o seu acesso à *[plataforma]* já está liberado.\n\n👉 Crie a sua senha e entre por aqui:\n[link]\n\nSeu login é o e-mail: *[email]*\n\nO link é pessoal e vale por 72 horas. Se expirar, é só pedir um novo na tela de entrada.\n\nQualquer dúvida, responda esta mensagem.',
+  wa_tpl_product: 'Olá, [nome]! 🎉\n\nO seu acesso a *[produto]* foi liberado na [plataforma].\n\n👉 Entre por aqui:\n[link]\n\nUse o mesmo e-mail de sempre (*[email]*) e a sua senha.',
 };
 const SECRET_KEYS = new Set(['greenn_webhook_token', 'resend_api_key', 'brevo_api_key', 'smtp_pass', 'outbound_webhook_secret']);
 

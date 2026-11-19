@@ -8,9 +8,12 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { compute } from '../public/shared/calc.js';
 import { startFakeMeta, VALID_TOKEN } from './fake-meta.js';
+import { startFakeEvolution, EVO_KEY } from './fake-evolution.js';
 
 const META_PORT = 3991;
 const fakeMeta = startFakeMeta(META_PORT);
+const EVO_PORT = 3992;
+const fakeEvo = startFakeEvolution(EVO_PORT);
 
 const PORT = 3990;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -18,7 +21,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'caminho-teste-'));
 let logs = '';
 
 const srv = spawn(process.execPath, ['--no-warnings', 'server.js'], {
-  env: { ...process.env, LEGACY_HOSTS: 'antigo.teste.com', META_GRAPH_URL: `http://127.0.0.1:${META_PORT}`, PORT: String(PORT), DATA_DIR: dataDir, APP_URL: BASE, ADMIN_EMAIL: 'dono@teste.com', ADMIN_PASSWORD: 'senha-forte-123', NODE_ENV: 'production', SCHEDULER_MINUTES: '60' },
+  env: { ...process.env, META_SALE_COOLDOWN_MS: '300', LEGACY_HOSTS: 'antigo.teste.com', META_GRAPH_URL: `http://127.0.0.1:${META_PORT}`, PORT: String(PORT), DATA_DIR: dataDir, APP_URL: BASE, ADMIN_EMAIL: 'dono@teste.com', ADMIN_PASSWORD: 'senha-forte-123', NODE_ENV: 'production', SCHEDULER_MINUTES: '60' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 srv.stdout.on('data', (d) => (logs += d));
@@ -361,12 +364,70 @@ try {
   near((await call('admin', 'GET', `/api/admin/finance?from=${today}&to=${today}`)).json.cur.gross, g0, 'desfazer devolve os números');
   assert.equal((await call('user', 'POST', '/api/admin/sales/mark-test', { before: today })).status, 401);
   step('intervalo da Meta personalizável e vendas de teste (marcar, zerar por data, desfazer)');
+  // venda aprovada dispara a atualização rápida da Meta (hoje e ontem), sem mexer no agendamento
+  const attemptBefore = (await call('admin', 'GET', '/api/admin/meta/status')).json.nextSyncAt;
+  const insightsBefore = fakeMeta.calls.filter((c) => c.endsWith('/insights')).length;
+  await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9750, amount: 27, method: 'PIX' }, client: { name: 'Venda Rápida', email: 'rapida@teste.com' } });
+  await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9751, amount: 27, method: 'PIX' }, client: { name: 'Venda Rápida 2', email: 'rapida2@teste.com' } });
+  let qlog;
+  for (let i = 0; i < 80; i++) { const stq = (await call('admin', 'GET', '/api/admin/meta/status')).json; qlog = stq.log.find((l) => l.trigger === 'venda aprovada'); if (qlog && qlog.status !== 'running') break; await new Promise((r) => setTimeout(r, 150)); }
+  assert.equal(qlog?.status, 'ok', 'atualização rápida após a venda');
+  assert.equal((await call('admin', 'GET', '/api/admin/meta/status')).json.log.filter((l) => l.trigger === 'venda aprovada').length, 1, 'vendas seguidas viram uma consulta só');
+  assert.equal(fakeMeta.calls.filter((c) => c.endsWith('/insights')).length - insightsBefore, 1, 'só métricas (sem recarregar campanhas)');
+  assert.equal((await call('admin', 'GET', '/api/admin/meta/status')).json.nextSyncAt, attemptBefore, 'não mexe no agendamento');
+  await call('admin', 'PUT', '/api/admin/meta/settings', { sync_on_sale: false });
+  assert.equal((await call('admin', 'GET', '/api/admin/meta/status')).json.syncOnSale, false);
+  await call('admin', 'PUT', '/api/admin/meta/settings', { sync_on_sale: true });
   assert.equal((await call('user', 'GET', '/api/admin/meta/report')).status, 401);
   assert.equal((await call('admin', 'POST', '/api/admin/meta/disconnect')).status, 200);
   assert.equal((await call('admin', 'GET', '/api/admin/meta/status')).json.connected, false);
   assert.ok((await m_rep()).totals.spend > 0, 'dados continuam depois de desconectar');
   assert.equal((await call('admin', 'POST', '/api/admin/meta/sync', {})).status, 400);
   step('Meta: configurações, preferências do painel, permissões e desconexão');
+
+  // ---------- WhatsApp (Evolution API simulada) ----------
+  const EVO = `http://127.0.0.1:${EVO_PORT}`;
+  assert.equal((await call('admin', 'GET', '/api/admin/whatsapp')).json.enabled, false);
+  assert.match((await call('admin', 'PUT', '/api/admin/whatsapp', { url: EVO, key: 'chave-errada-000' })).json.error, /recusada/);
+  assert.equal((await call('admin', 'PUT', '/api/admin/whatsapp', { url: EVO, key: EVO_KEY })).status, 200);
+  assert.match((await call('admin', 'PUT', '/api/admin/whatsapp', { enabled: true })).json.error, /instância/);
+  const insts = (await call('admin', 'GET', '/api/admin/whatsapp/instances')).json.rows;
+  assert.equal(insts[0].name, 'crmwta-principal'); assert.equal(insts[0].number, '5551999990000');
+  assert.equal((await call('admin', 'POST', '/api/admin/whatsapp/instances', { name: 'outro-nome' })).status, 400, 'só cria instâncias com o prefixo altis-');
+  assert.ok((await call('admin', 'POST', '/api/admin/whatsapp/instances', { name: 'altis-alunos' })).json.qr);
+  assert.equal((await call('admin', 'GET', '/api/admin/whatsapp/instances/crmwta-principal/qr')).status, 400, 'não mexe em instâncias de outros sistemas');
+  assert.match((await call('admin', 'PUT', '/api/admin/whatsapp', { tpl_access: 'sem link' })).json.error, /\[link\]/);
+  assert.equal((await call('admin', 'PUT', '/api/admin/whatsapp', { instance: 'crmwta-principal', enabled: true })).status, 200);
+  const wst = (await call('admin', 'GET', '/api/admin/whatsapp')).json;
+  assert.equal(wst.enabled, true); assert.equal(wst.state, 'open'); assert.ok(wst.keyHint.includes('…'));
+  assert.ok(!JSON.stringify((await call('admin', 'GET', '/api/admin/settings')).json).includes('wa_key'));
+  for (const f of fs.readdirSync(dataDir).filter((x) => x.startsWith('app.db'))) assert.ok(!fs.readFileSync(path.join(dataDir, f)).includes(EVO_KEY), 'chave da Evolution criptografada');
+  const tst = (await call('admin', 'POST', '/api/admin/whatsapp/test', { phone: '(11) 99999-8888' })).json;
+  assert.equal(tst.status, 'sent'); assert.equal(fakeEvo.sent.at(-1).number, '5511999998888'); assert.match(fakeEvo.sent.at(-1).text, /Mensagem de teste/);
+  assert.equal((await call('admin', 'POST', '/api/admin/whatsapp/test', { phone: '+351 912 340 000' })).json.status, 'failed', 'número sem WhatsApp');
+  step('WhatsApp: conexão com a Evolution, instâncias (sem mexer nas de outros sistemas), chave criptografada e envio de teste');
+
+  const waWait = async (email) => { for (let i = 0; i < 60; i++) { const m = (await call('admin', 'GET', '/api/admin/whatsapp')).json.messages.find((x) => x.email === email); if (m && m.status !== 'queued') return m; await new Promise((r) => setTimeout(r, 150)); } return null; };
+  await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9800, amount: 27, method: 'PIX' }, client: { name: 'Joana Compradora', email: 'joana@teste.com', cellphone: '+55 (21) 98888-7777' } });
+  const wj = await waWait('joana@teste.com');
+  assert.equal(wj.status, 'sent'); assert.equal(wj.kind, 'access'); assert.equal(wj.phone, '5521988887777');
+  const txt = fakeEvo.sent.find((x) => x.number === '5521988887777').text;
+  assert.match(txt, /Olá, Joana!/); assert.match(txt, /\/acesso\?t=[A-Za-z0-9_-]+/); assert.match(txt, /joana@teste\.com/);
+  // a Greenn reenvia o mesmo aviso: não duplica
+  await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9800, amount: 27, method: 'PIX' }, client: { name: 'Joana Compradora', email: 'joana@teste.com', cellphone: '+55 (21) 98888-7777' } });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(fakeEvo.sent.filter((x) => x.number === '5521988887777').length, 1, 'sem mensagem duplicada');
+  await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9801, amount: 27, method: 'PIX' }, client: { name: 'Sem Telefone', email: 'semfone@teste.com' } });
+  const ws = await waWait('semfone@teste.com'); assert.equal(ws.status, 'skipped');
+  const wlog = (await call('admin', 'GET', '/api/admin/webhooks')).json;
+  assert.ok(JSON.stringify(wlog).includes('WhatsApp na fila'), 'registro do webhook mostra o WhatsApp');
+  // reenviar depois de corrigir o telefone
+  const semfone = (await call('admin', 'GET', '/api/admin/students?q=semfone')).json.rows[0];
+  await call('admin', 'PUT', `/api/admin/students/${semfone.id}`, { phone: '11 97777-6666' });
+  assert.equal((await call('admin', 'POST', `/api/admin/whatsapp/messages/${ws.id}/resend`)).status, 200);
+  await new Promise((r) => setTimeout(r, 400));
+  assert.ok(fakeEvo.sent.some((x) => x.number === '5511977776666'), 'reenvio com o telefone atualizado');
+  step('WhatsApp: compra confirmada envia os dados de acesso junto com o e-mail, sem duplicar, e reenvio após corrigir o telefone');
 
   // endereço antigo: páginas redirecionam para o APP_URL; APIs e webhook continuam respondendo
   const viaHost = (host, method, p, body) => new Promise((ok, ko) => { const rq = http.request({ host: '127.0.0.1', port: PORT, path: p, method, headers: { host, 'content-type': 'application/json' } }, (rs) => { rs.resume(); rs.on('end', () => ok(rs)); }); rq.on('error', ko); if (body) rq.write(JSON.stringify(body)); rq.end(); });
@@ -387,7 +448,7 @@ try {
   console.error('\n✗ FALHOU:', e.message, '\n--- logs do servidor ---\n' + logs.slice(-3000));
   process.exitCode = 1;
 } finally {
-  fakeMeta.srv.close();
+  fakeMeta.srv.close(); fakeEvo.srv.close();
   srv.kill('SIGTERM');
   fs.rmSync(dataDir, { recursive: true, force: true });
 }

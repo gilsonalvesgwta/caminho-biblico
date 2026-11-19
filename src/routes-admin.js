@@ -13,6 +13,7 @@ import path from 'node:path';
 import { makeBackup, listBackups, backupDir } from './backup.js';
 import { connect as metaConnect, disconnect as metaDisconnect, syncMeta, metaStatus, rebuildSpend } from './meta.js';
 import { metaReport } from './meta-report.js';
+import { waStatus, saveConfig as waSave, listInstances, createInstance, connectQr, queueWhatsApp, resend as waResend, normalizePhone } from './whatsapp.js';
 import { sanitizeBlocks, studentBlockAnswers, FILE_TYPES } from './blocks.js';
 import { financeReport, addSpend, importMetaCsv, listSpend, deleteSpend } from './finance.js';
 
@@ -108,6 +109,32 @@ export function registerAdminRoutes(r) {
     return { ok: true, ...out };
   });
 
+  // ---------- WhatsApp (Evolution API) ----------
+  r.get('/api/admin/whatsapp', async (req) => { requireAdmin(req, 'admin'); return waStatus(); });
+  r.put('/api/admin/whatsapp', async (req) => {
+    requireAdmin(req, 'owner');
+    await waSave(req.body || {});
+    audit(req, 'whatsapp.config', null, { keys: Object.keys(req.body || {}).filter((k) => k !== 'key') });
+    return { ok: true };
+  });
+  r.get('/api/admin/whatsapp/instances', async (req) => { requireAdmin(req, 'owner'); try { return { rows: await listInstances() }; } catch (e) { fail(400, e.message); } });
+  r.post('/api/admin/whatsapp/instances', async (req) => { requireAdmin(req, 'owner'); const out = await createInstance(String(req.body?.name || '')); audit(req, 'whatsapp.instance.create', null, { name: req.body?.name }); return out; });
+  r.get('/api/admin/whatsapp/instances/:name/qr', async (req) => { requireAdmin(req, 'owner'); return connectQr(req.params.name); });
+  r.post('/api/admin/whatsapp/test', async (req) => {
+    const adm = requireAdmin(req, 'admin');
+    const s = getSettings();
+    if (!s.wa_url || !s.wa_key_enc || !s.wa_instance) fail(400, 'Conecte a Evolution e escolha o número antes do teste.');
+    const phone = normalizePhone(req.body?.phone, s.wa_country || '55');
+    if (!phone) fail(400, 'Número inválido. Use DDD + número, ou +DDI para outros países.');
+    const sample = { name: adm?.name || 'Teste', email: adm?.email || 'aluno@exemplo.com', phone };
+    const kind = req.body?.kind === 'product' ? 'product' : 'access';
+    const { render } = await import('./whatsapp.js');
+    const text = `🧪 Mensagem de teste\n\n${render(kind === 'product' ? s.wa_tpl_product : s.wa_tpl_access, { nome: (sample.name || '').split(' ')[0], nome_completo: sample.name, email: sample.email, link: `${config.appUrl}/acesso?t=exemplo`, produto: 'Nome do produto', plataforma: s.brand_name })}`;
+    const m = queueWhatsApp({ user: null, kind: 'test', text, phone });
+    for (let i = 0; i < 40; i++) { const x = db.get('SELECT status, error FROM wa_messages WHERE id = ?', m.id); if (x.status !== 'queued' || i === 39) return { id: m.id, status: x.status, error: x.error }; await new Promise((r2) => setTimeout(r2, 250)); }
+  });
+  r.post('/api/admin/whatsapp/messages/:id/resend', (req) => { requireAdmin(req, 'admin'); waResend(Number(req.params.id)); audit(req, 'whatsapp.resend', Number(req.params.id)); return { ok: true }; });
+
   // ---------- Meta Ads ----------
   r.get('/api/admin/meta/status', (req) => { requireAdmin(req, 'admin'); return metaStatus(); });
   r.post('/api/admin/meta/connect', async (req) => {
@@ -133,6 +160,7 @@ export function registerAdminRoutes(r) {
     if (req.body.sync_hours !== undefined) { if (!Number.isInteger(h) || h < 1 || h > 24) fail(400, 'Intervalo entre 1 e 24 horas.'); out.meta_sync_hours = String(h); out.meta_sync_minutes = String(h * 60); }
     if (req.body.sync_minutes !== undefined) { const m = Number(req.body.sync_minutes); if (!Number.isInteger(m) || m < 15 || m > 1440) fail(400, 'Escolha um intervalo entre 15 minutos e 24 horas.'); out.meta_sync_minutes = String(m); out.meta_sync_hours = String(Math.max(1, Math.round(m / 60))); }
     if (req.body.history_days !== undefined) { if (!Number.isInteger(d) || d < 7 || d > 730) fail(400, 'Histórico entre 7 e 730 dias.'); out.meta_history_days = String(d); }
+    if (req.body.sync_on_sale !== undefined) out.meta_sync_on_sale = req.body.sync_on_sale ? 'true' : 'false';
     setSettings(out);
     if (out.meta_sync_minutes) audit(req, 'meta.interval', null, { minutes: Number(out.meta_sync_minutes) });
     return { ok: true };
@@ -261,9 +289,9 @@ export function registerAdminRoutes(r) {
     requireAdmin(req, 'support');
     const u = db.get('SELECT * FROM users WHERE id = ?', Number(req.params.id));
     if (!u) fail(404, 'Aluno não encontrado.');
-    const out = await sendAccessEmail(u, { isNew: !u.password_hash });
+    const out = await sendAccessEmail(u, { isNew: !u.password_hash, whatsapp: !!req.body?.whatsapp });
     audit(req, 'access.email', u.id);
-    return { ok: true, link: out.link, email: out.status, error: out.error };
+    return { ok: true, link: out.link, email: out.status, error: out.error, whatsapp: out.whatsapp };
   });
   r.post('/api/admin/students/:id/unlock-next', (req) => {
     requireAdmin(req, 'support');
@@ -638,7 +666,7 @@ export function registerAdminRoutes(r) {
   r.get('/api/admin/settings', (req) => {
     requireAdmin(req, 'admin');
     const s = getSettings({ maskSecrets: true });
-    for (const k of Object.keys(s)) if (k.startsWith('meta_')) delete s[k]; // credenciais e preferências da Meta ficam na tela de Anúncios
+    for (const k of Object.keys(s)) if (k.startsWith('meta_') || k.startsWith('wa_')) delete s[k]; // Meta e WhatsApp têm telas próprias
     const raw = getSettings();
     return { settings: s, webhookUrl: raw.greenn_webhook_token ? `${config.appUrl}/api/webhooks/greenn/${raw.greenn_webhook_token}` : null, appUrl: config.appUrl,
       outbox: db.get("SELECT SUM(status='pending') pending, SUM(status='failed') failed, SUM(status='sent') sent FROM outbox") };
@@ -647,7 +675,7 @@ export function registerAdminRoutes(r) {
     requireAdmin(req, 'admin');
     const body = { ...(req.body || {}) };
     for (const k of ['brand_logo', 'brand_logo_wide', 'brand_logo_wide_dark', 'brand_app_icon']) delete body[k]; // só por upload
-    for (const k of Object.keys(body)) if (k.startsWith('meta_')) delete body[k]; // só pela tela de Anúncios
+    for (const k of Object.keys(body)) if (k.startsWith('meta_') || k.startsWith('wa_')) delete body[k]; // só pelas telas de Anúncios e WhatsApp
     for (const k of ['fee_percent', 'fee_fixed']) {
       if (k in body) { const v = Number(String(body[k]).replace(',', '.')); if (!Number.isFinite(v) || v < 0 || v > (k === 'fee_percent' ? 50 : 1000)) fail(400, 'Taxa inválida.'); body[k] = String(v); }
     }

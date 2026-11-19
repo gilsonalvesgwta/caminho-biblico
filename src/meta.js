@@ -135,8 +135,13 @@ function rowFromInsight(r) {
   };
 }
 
-async function syncAccount(acc, since, until, c, log) {
+async function syncAccount(acc, since, until, c, log, quick = false) {
   const t = now();
+  if (!quick) await syncStructure(acc, c, t);
+  return syncInsights(acc, since, until, c, log, t);
+}
+
+async function syncStructure(acc, c, t) {
   const camps = await graphAll(`${acc.id}/campaigns`, { fields: 'id,name,objective,status,effective_status,daily_budget,lifetime_budget', limit: 500 }, c);
   const sets = await graphAll(`${acc.id}/adsets`, { fields: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,optimization_goal', limit: 500 }, c);
   const ads = await graphAll(`${acc.id}/ads`, { fields: 'id,name,campaign_id,adset_id,status,effective_status,creative{thumbnail_url,image_url}', limit: 500, thumbnail_width: 240, thumbnail_height: 240 }, c);
@@ -152,6 +157,9 @@ async function syncAccount(acc, since, until, c, log) {
       ON CONFLICT(id) DO UPDATE SET campaign_id = excluded.campaign_id, adset_id = excluded.adset_id, name = excluded.name, status = excluded.status, effective_status = excluded.effective_status, thumbnail_url = COALESCE(excluded.thumbnail_url, meta_ads.thumbnail_url), updated_at = excluded.updated_at`,
       x.id, acc.id, x.campaign_id || null, x.adset_id || null, x.name, x.status || null, x.effective_status || null, x.creative?.thumbnail_url || x.creative?.image_url || null, t);
   });
+}
+
+async function syncInsights(acc, since, until, c, log, t) {
   // métricas diárias por anúncio, em blocos de 30 dias
   let rows = 0;
   for (let a = since; a <= until; a = addDays(a, 30)) {
@@ -196,13 +204,13 @@ export function rebuildSpend(accountId, since, until) {
   });
 }
 
-/** Sincroniza todas as contas ativas. full = recarrega todo o histórico configurado. */
-export function syncMeta({ full = false, trigger = 'agenda' } = {}) {
+/** Sincroniza todas as contas ativas. full = recarrega todo o histórico; quick = só métricas de hoje e ontem (após uma venda). */
+export function syncMeta({ full = false, quick = false, trigger = 'agenda' } = {}) {
   if (running) return running;
   running = (async () => {
     const s = getSettings();
     const logId = db.run("INSERT INTO meta_sync_log (started_at, status, trigger) VALUES (?, 'running', ?)", now(), trigger).lastInsertRowid;
-    setSettings({ meta_last_attempt_at: now() });
+    if (!quick) setSettings({ meta_last_attempt_at: now() }); // a atualização rápida não mexe no agendamento
     const notes = []; let total = 0; let errors = 0;
     try {
       const c = creds();
@@ -211,8 +219,9 @@ export function syncMeta({ full = false, trigger = 'agenda' } = {}) {
       const until = localDay(0);
       for (const acc of db.all('SELECT * FROM meta_accounts WHERE enabled = 1')) {
         const first = !acc.last_sync_at;
-        const since = full || first ? addDays(until, -(history - 1)) : addDays(until, -6); // reprocessa 7 dias: a Meta ajusta as conversões com atraso
-        try { total += await syncAccount(acc, since, until, c, notes); }
+        if (quick && first) continue; // conta ainda sem a carga inicial: fica para a sincronização completa
+        const since = quick ? addDays(until, -1) : full || first ? addDays(until, -(history - 1)) : addDays(until, -6); // reprocessa 7 dias: a Meta ajusta as conversões com atraso
+        try { total += await syncAccount(acc, since, until, c, notes, quick); }
         catch (e) {
           errors++; notes.push(`${acc.name}: ${e.message}`);
           db.run('UPDATE meta_accounts SET last_error = ?, updated_at = ? WHERE id = ?', e.message, now(), acc.id);
@@ -221,15 +230,40 @@ export function syncMeta({ full = false, trigger = 'agenda' } = {}) {
       }
       const status = errors ? (total ? 'partial' : 'error') : 'ok';
       db.run('UPDATE meta_sync_log SET finished_at = ?, status = ?, message = ?, rows = ? WHERE id = ?', now(), status, notes.join(' · ').slice(0, 2000) || null, total, logId);
-      if (status !== 'error') setSettings({ meta_last_sync_at: now() });
       db.run('DELETE FROM meta_sync_log WHERE id NOT IN (SELECT id FROM meta_sync_log ORDER BY id DESC LIMIT 60)');
+      if (status !== 'error') setSettings({ meta_last_sync_at: now() });
       return { status, rows: total, notes };
     } catch (e) {
       db.run("UPDATE meta_sync_log SET finished_at = ?, status = 'error', message = ? WHERE id = ?", now(), e.message, logId);
       return { status: 'error', rows: 0, notes: [e.message] };
-    } finally { running = null; }
+    } finally {
+      running = null;
+      if (pendingAfterRun && !saleTimer) { pendingAfterRun = false; setImmediate(() => requestSaleSync()); } // venda chegou durante outra sincronização
+    }
   })();
   return running;
+}
+
+// ---------- atualização rápida a cada venda aprovada ----------
+const SALE_COOLDOWN_MS = Number(process.env.META_SALE_COOLDOWN_MS || 120_000);
+let saleTimer = null, lastQuick = 0, pendingAfterRun = false; // eslint-disable-line prefer-const
+/** Chamado quando uma venda é aprovada: traz as métricas de hoje e de ontem sem esperar o intervalo configurado.
+ *  Várias vendas seguidas viram uma consulta só (no máximo uma a cada 2 minutos). */
+export function requestSaleSync() {
+  const s = getSettings();
+  if (!s.meta_token_enc || s.meta_sync_on_sale === 'false') return false;
+  if (saleTimer) return true;
+  if (running) { pendingAfterRun = true; return true; }
+  const wait = Math.max(0, lastQuick + SALE_COOLDOWN_MS - Date.now());
+  saleTimer = setTimeout(async () => {
+    saleTimer = null;
+    if (running) { pendingAfterRun = true; return; }
+    lastQuick = Date.now();
+    await syncMeta({ quick: true, trigger: 'venda aprovada' }).catch(() => {});
+    if (pendingAfterRun) { pendingAfterRun = false; requestSaleSync(); }
+  }, wait + 1500); // pequeno atraso: junta vendas que chegam juntas
+  saleTimer.unref?.();
+  return true;
 }
 
 /** Intervalo entre sincronizações, em minutos (padrão: 6 horas; mínimo 15 min, máximo 24 h) */
@@ -259,7 +293,7 @@ export function metaStatus() {
     apiVersion: s.meta_api_version, syncMinutes: mins, syncHours: mins / 60, syncLabel: intervalLabel(mins), syncIsDefault: mins === DEFAULT_SYNC_MINUTES, defaultSyncMinutes: DEFAULT_SYNC_MINUTES,
     historyDays: Number(s.meta_history_days) || 90,
     lastSyncAt: s.meta_last_sync_at || null, nextSyncAt: s.meta_token_enc ? new Date((Date.parse(last || 0) || Date.now()) + mins * 60e3).toISOString() : null,
-    syncing: !!running,
+    syncing: !!running, syncOnSale: s.meta_sync_on_sale !== 'false',
     accounts: db.all('SELECT id, name, currency, timezone, account_status, business_name, enabled, last_sync_at, last_error FROM meta_accounts ORDER BY enabled DESC, name'),
     log: db.all('SELECT * FROM meta_sync_log ORDER BY id DESC LIMIT 12'),
     utmTemplate: 'utm_source=FB&utm_campaign={{campaign.name}}|{{campaign.id}}&utm_medium={{adset.name}}|{{adset.id}}&utm_content={{ad.name}}|{{ad.id}}&utm_term={{placement}}',

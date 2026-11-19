@@ -14,6 +14,7 @@ import { processReleases } from './src/services.js';
 import { flushOutbox } from './src/events.js';
 import { dailyBackupIfDue } from './src/backup.js';
 import { metaSyncIfDue } from './src/meta.js';
+import { processWaQueue } from './src/whatsapp.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUB = path.join(ROOT, 'public');
@@ -128,6 +129,7 @@ async function tick() {
     await flushOutbox();
     await dailyBackupIfDue();
     metaSyncIfDue().catch((e) => console.error('[meta]', e.message)); // não bloqueia as outras tarefas
+    processWaQueue().catch((e) => console.error('[whatsapp]', e.message));
     cleanupSessions();
   } catch (e) { console.error('[agenda]', e); }
   finally { running = false; }
@@ -135,7 +137,7 @@ async function tick() {
 setTimeout(tick, 5000).unref();
 setInterval(tick, Math.min(config.schedulerMinutes, 30) * 60e3).unref();
 // a Meta pode sincronizar a cada 15 min: confere todo minuto (só chama a API quando chega a hora)
-setInterval(() => metaSyncIfDue().catch((e) => console.error('[meta]', e.message)), 60e3).unref();
+setInterval(() => { metaSyncIfDue().catch((e) => console.error('[meta]', e.message)); processWaQueue().catch((e) => console.error('[whatsapp]', e.message)); }, 60e3).unref();
 
 function shutdown(sig) {
   console.log(`[${sig}] encerrando…`);

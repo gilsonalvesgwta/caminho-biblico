@@ -109,7 +109,16 @@ Menu **Anúncios**. Conexão por token de usuário do sistema (permissão `ads_r
 - Vendas reais da Greenn ligadas ao anúncio pelos UTMs (`utm_campaign`, `utm_medium`, `utm_content` com `nome|id`, ou pelo nome da campanha). O modelo de parâmetros de URL aparece na tela de conexão.
 - Painel com filtros (período, conta, campanha, conjunto, anúncio, status, padrão salvo), visões prontas (Visão geral, Criativos, Funil, Meta × Real) e visões personalizadas (indicadores e colunas), gráfico, funil e tabelas com exportação CSV.
 - O gasto da Meta alimenta o Financeiro automaticamente (o CSV importado do mesmo dia é ignorado para não duplicar). Cada campanha pode ser vinculada a um produto.
+- Venda aprovada dispara uma atualização rápida (métricas de hoje e ontem), no máximo uma a cada 2 minutos, sem mexer no agendamento (opção na tela de conexão).
 - Versão da API: v26.0 (setting `meta_api_version`). Para testes: `node scripts/fake-meta.js 4999` e `META_GRAPH_URL=http://127.0.0.1:4999`.
+
+## 2g. WhatsApp (Evolution API)
+
+Menu **WhatsApp**. Usa a mesma Evolution API do CRM (endereço + chave global, guardada com AES-256-GCM).
+- Compra confirmada: o aluno recebe o e-mail e, em paralelo, a mensagem no WhatsApp com o mesmo link de acesso (aluno novo) ou o link do produto (quem já é aluno). Mensagens editáveis com `[nome]`, `[nome_completo]`, `[email]`, `[link]`, `[produto]`, `[plataforma]`.
+- Fila com novas tentativas (1, 5, 15, 60 e 180 min), sem duplicar quando a Greenn reenvia o aviso; número sem WhatsApp ou aluno sem telefone ficam registrados, com reenvio após corrigir o telefone.
+- Pode usar um número já conectado na Evolution ou criar um exclusivo (prefixo `altis-`, com QR code). Instâncias de outros sistemas nunca são alteradas.
+- Testes: `node scripts/fake-evolution.js 4998`.
 
 ## 2f. Endereço
 

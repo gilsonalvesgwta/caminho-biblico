@@ -1,4 +1,5 @@
 import { db, now } from './db.js';
+import { requestSaleSync } from './meta.js';
 import { upsertUser, grantAccess, revokeAccess, sendAccessEmail, sendProductAccessEmail, normEmail, isEmail } from './services.js';
 import { emit } from './events.js';
 
@@ -34,6 +35,7 @@ export async function processGreennEvent(p) {
   const metas = Object.fromEntries((p.saleMetas || []).map((m) => [m.meta_key, m.meta_value]));
   if (saleId) {
     const t = now();
+    const prevStatus = db.get("SELECT status FROM sales WHERE provider = 'greenn' AND sale_id = ? AND provider_product_id = ?", saleId, gpid)?.status;
     const amount = Number(p.sale?.amount ?? p.contract?.amount ?? p.product?.amount ?? 0) || 0;
     const { net, fee } = extractNet(p, amount);
     const refundedAt = ['refunded', 'chargedback'].includes(status) ? t : null;
@@ -47,6 +49,7 @@ export async function processGreennEvent(p) {
       p.sale?.method || null, p.sale?.installments || null, p.sale?.coupon?.name || null, type,
       metas.utm_source || null, metas.utm_medium || null, metas.utm_campaign || null, metas.utm_content || null,
       status === 'paid' ? t : null, refundedAt, p.sale?.created_at ? toIso(p.sale.created_at) : t, t);
+    if (status === 'paid' && prevStatus !== 'paid') requestSaleSync(); // venda aprovada: atualiza as métricas da Meta na hora
   }
 
   if (!products.length) {
@@ -69,12 +72,12 @@ export async function processGreennEvent(p) {
     const recentMail = db.get("SELECT 1 FROM notifications WHERE user_id = ? AND kind = 'access' AND created_at > ?", user.id, new Date(Date.now() - 15 * 60e3).toISOString());
     if (activated.length && (!user.password_hash || created) && !recentMail) {
       const r = await sendAccessEmail(user, { isNew: true });
-      mail = r.status === 'failed' ? ` E-mail de acesso falhou: ${r.error}` : ' E-mail de acesso enviado.';
+      mail = (r.status === 'failed' ? ` E-mail de acesso falhou: ${r.error}` : ' E-mail de acesso enviado.') + waNote(r.whatsapp);
     } else if (activatedProducts.length && user.password_hash && !created) {
       // já é aluno: avisa do produto novo (o principal, se vierem vários na mesma compra)
       const main = activatedProducts.find((x) => x.kind !== 'bonus') || activatedProducts[0];
       const r = await sendProductAccessEmail(user, main);
-      mail = r.status === 'failed' ? ` Aviso de novo produto falhou: ${r.error}` : ' Aviso de novo produto enviado.';
+      mail = (r.status === 'failed' ? ` Aviso de novo produto falhou: ${r.error}` : ' Aviso de novo produto enviado.') + waNote(r.whatsapp);
     }
     return { outcome: 'ok', userId: user.id, message: activated.length ? `Acesso liberado: ${activated.join(', ')}.${mail}` : 'Acesso já estava ativo.' };
   }
@@ -136,4 +139,6 @@ export function extractNet(p, amount) {
   }
   return { net: null, fee: null };
 }
+
+const waNote = (st) => (st === 'queued' ? ' WhatsApp na fila de envio.' : st === 'skipped' ? ' WhatsApp não enviado: aluno sem telefone.' : '');
 

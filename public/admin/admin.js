@@ -1,6 +1,7 @@
 import { api, esc, toast, modal, withLoading, fmtDate, fmtDateTime, relTime, $, $$ } from '/shared/ui.js';
 import { productCardHtml } from '/shared/pcard.js';
 import { pageAds } from '/admin/ads.js';
+import { pageWhatsApp } from '/admin/whatsapp.js';
 import { brl, pct, money, setCurrency, NOTAS_RETRATO, ARMAS, FRUTOS } from '/shared/calc.js';
 import { youtubeId, youtubeThumb } from '/shared/player.js';
 import { themeVars, varsToStyle, normalizeTheme, loadFont, contrast, FONTS } from '/shared/theme.js';
@@ -14,6 +15,7 @@ const ICONS = {
   dash: I('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
   users: I('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .7 3.2 2.4 3.6 5.2"/>'),
   sales: I('<path d="M3 7h18v12H3z"/><path d="M3 11h18M7 15h3"/>'),
+  wa: I('<path d="M20.5 11.6a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.3A8.5 8.5 0 1 1 20.5 11.6z"/><path d="M9 8.5c0 3 2.5 6 5.8 6.6l1-1.3-1.8-.9-.8.8c-1-.4-2-1.4-2.4-2.4l.8-.8-.9-1.8-1.3 1"/>'),
   ads: I('<path d="M4 10v4a1 1 0 0 0 1 1h2l5 4V5L7 9H5a1 1 0 0 0-1 1z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'),
   money: I('<path d="M4 19V5M4 19h16"/><path d="M8 15l3.5-4 3 2.5L20 7"/><path d="M16 7h4v4"/>'),
   leads: I('<path d="M12 3l2.6 5.5 6 .8-4.4 4.2 1.1 6L12 16.6 6.7 19.5l1.1-6L3.4 9.3l6-.8z"/>'),
@@ -27,7 +29,7 @@ const ICONS = {
 };
 const NAV = [
   ['Operação', [['', 'Visão geral', 'dash'], ['/financeiro', 'Financeiro', 'money'], ['/anuncios', 'Anúncios', 'ads'], ['/alunos', 'Alunos', 'users'], ['/vendas', 'Vendas', 'sales'], ['/leads', 'Leads qualificados', 'leads'], ['/vozes', 'Depoimentos e recados', 'voice']]],
-  ['Produto', [['/conteudo', 'Produtos e conteúdo', 'content'], ['/integracoes', 'Greenn e integrações', 'plug']]],
+  ['Produto', [['/conteudo', 'Produtos e conteúdo', 'content'], ['/integracoes', 'Greenn e integrações', 'plug'], ['/whatsapp', 'WhatsApp', 'wa']]],
   ['Sistema', [['/config', 'Configurações', 'gear'], ['/equipe', 'Equipe', 'team'], ['/auditoria', 'Auditoria', 'log']]],
 ];
 const ROLE = { owner: 'Proprietário', admin: 'Administrador', support: 'Suporte', viewer: 'Leitura' };
@@ -51,7 +53,7 @@ async function route() {
   const path = location.pathname.replace(/^\/admin/, '').replace(/\/+$/, '') || '';
   if (!ME) { try { ME = await api('/api/admin/me'); } catch { return pageLogin(); } }
   const pages = [
-    [/^$/, pageDash], [/^\/alunos$/, pageStudents], [/^\/alunos\/(\d+)$/, pageStudent], [/^\/vendas$/, pageSales], [/^\/financeiro$/, pageFinance], [/^\/anuncios$/, async () => { const { rows } = await api('/api/admin/products'); return pageAds({ head, can, BASE, products: rows }); }], [/^\/leads$/, pageLeads],
+    [/^$/, pageDash], [/^\/alunos$/, pageStudents], [/^\/alunos\/(\d+)$/, pageStudent], [/^\/vendas$/, pageSales], [/^\/financeiro$/, pageFinance], [/^\/whatsapp$/, () => pageWhatsApp({ head, can })], [/^\/anuncios$/, async () => { const { rows } = await api('/api/admin/products'); return pageAds({ head, can, BASE, products: rows }); }], [/^\/leads$/, pageLeads],
     [/^\/vozes$/, pageVoices], [/^\/conteudo$/, pageContent], [/^\/conteudo\/(\d+)$/, pageProduct], [/^\/integracoes$/, pageIntegrations],
     [/^\/config$/, pageSettings], [/^\/equipe$/, pageTeam], [/^\/auditoria$/, pageAudit],
   ];
@@ -462,8 +464,8 @@ async function pageStudent(id) {
 
   $('#link')?.addEventListener('click', async (e) => {
     await withLoading(e.currentTarget, async () => {
-      const r = await api(`/api/admin/students/${id}/send-access`, { method: 'POST' });
-      modal({ title: 'Link de acesso gerado', body: `<p class="muted">${r.email === 'failed' ? `O e-mail falhou (${esc(r.error)}). ` : r.email === 'logged' ? 'E-mail em modo teste (não enviado). ' : 'Enviamos por e-mail. '}Você também pode copiar e mandar pelo WhatsApp. Vale por 72h e só pode ser usado uma vez.</p><div class="copy"><input class="input" readonly value="${esc(r.link)}"><button class="btn btn-primary" data-copy>Copiar</button></div>`,
+      const r = await api(`/api/admin/students/${id}/send-access`, { method: 'POST', body: { whatsapp: true } });
+      modal({ title: 'Link de acesso gerado', body: `<p class="muted">${r.email === 'failed' ? `O e-mail falhou (${esc(r.error)}). ` : r.email === 'logged' ? 'E-mail em modo teste (não enviado). ' : 'Enviamos por e-mail. '}${r.whatsapp === 'queued' ? 'E também pelo WhatsApp. ' : r.whatsapp === 'skipped' ? 'WhatsApp não enviado: aluno sem telefone. ' : ''}Você também pode copiar e mandar por onde quiser. Vale por 72h e só pode ser usado uma vez.</p><div class="copy"><input class="input" readonly value="${esc(r.link)}"><button class="btn btn-primary" data-copy>Copiar</button></div>`,
         onMount: (m) => m.querySelector('[data-copy]').addEventListener('click', () => { navigator.clipboard.writeText(r.link); toast('Link copiado'); }) });
     });
   });
