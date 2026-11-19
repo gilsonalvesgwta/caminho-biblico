@@ -384,6 +384,13 @@ const migrations = [
   UPDATE settings SET value = REPLACE(value, 'o seu acesso à *[plataforma]* já está liberado', 'o seu acesso a *[produto]* já está liberado') WHERE key = 'wa_tpl_access';
   UPDATE settings SET value = REPLACE(value, 'foi liberado na [plataforma].', 'já está liberado.') WHERE key = 'wa_tpl_product';
   `,
+  // 12: vendas de teste excluídas definitivamente — se a Greenn reenviar o aviso, ela não volta
+  `
+  CREATE TABLE deleted_sales (
+    provider TEXT NOT NULL, sale_id TEXT NOT NULL, provider_product_id TEXT NOT NULL DEFAULT '', deleted_at TEXT NOT NULL,
+    PRIMARY KEY (provider, sale_id, provider_product_id)
+  );
+  `,
 ];
 
 export function migrate() {

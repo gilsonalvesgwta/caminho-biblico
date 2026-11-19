@@ -58,7 +58,7 @@ export function registerAdminRoutes(r) {
     const refunds = db.get("SELECT COUNT(*) c, COALESCE(SUM(amount),0) v FROM sales WHERE is_test = 0 AND status IN ('refunded','chargedback') AND updated_at >= ?", since);
     const pending = db.get("SELECT COUNT(*) c FROM sales WHERE is_test = 0 AND status = 'waiting_payment' AND created_at >= ?", since).c;
     const series = db.all(`SELECT substr(datetime(COALESCE(paid_at, created_at), '-3 hours'), 1, 10) d, COUNT(*) c, SUM(amount) v FROM sales
-      WHERE status = 'paid' AND COALESCE(paid_at, created_at) >= ? GROUP BY d ORDER BY d`, since);
+      WHERE is_test = 0 AND status = 'paid' AND COALESCE(paid_at, created_at) >= ? GROUP BY d ORDER BY d`, since);
     const byProduct = db.all(`SELECT COALESCE(product_name, provider_product_id) name, COUNT(*) c, SUM(amount) v FROM sales WHERE is_test = 0 AND status = 'paid' AND COALESCE(paid_at, created_at) >= ? GROUP BY provider_product_id ORDER BY v DESC LIMIT 8`, since);
     const students = db.get("SELECT COUNT(DISTINCT user_id) c FROM enrollments WHERE status = 'active'").c;
     const newStudents = db.get('SELECT COUNT(*) c FROM users WHERE created_at >= ?', since).c;
@@ -76,7 +76,7 @@ export function registerAdminRoutes(r) {
     const abandoned = db.get('SELECT COUNT(*) c FROM leads WHERE created_at >= ? AND converted = 0', since).c;
     const whIssues = db.get("SELECT COUNT(*) c FROM webhook_events WHERE outcome IN ('error','unmapped') AND received_at >= ?", sinceDays(7)).c;
     const lastWebhook = db.get('SELECT received_at, outcome FROM webhook_events ORDER BY id DESC LIMIT 1');
-    const recentSales = db.all(`SELECT s.*, COALESCE(u.name, s.client_name) name FROM sales s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.updated_at DESC LIMIT 8`);
+    const recentSales = db.all(`SELECT s.*, COALESCE(u.name, s.client_name) name FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE s.is_test = 0 ORDER BY s.updated_at DESC LIMIT 8`);
     const fin = financeReport({ days }).cur;
     return {
       fin: { gross: fin.gross, net: fin.net, approved: fin.approved, ticket: fin.ticket, refundValue: fin.refunds.v + fin.chargebacks.v, refundCount: fin.refunds.c + fin.chargebacks.c, refundRate: fin.refundRate, spend: fin.spend, roas: fin.roas },
@@ -356,6 +356,27 @@ export function registerAdminRoutes(r) {
     else fail(400, 'Escolha as vendas.');
     audit(req, flag ? 'sales.mark_test' : 'sales.unmark_test', null, { count: n, before: req.body?.before || null });
     return { ok: true, count: n };
+  });
+
+  // Excluir definitivamente: só apaga vendas JÁ marcadas como teste. O acesso dos alunos não muda.
+  r.post('/api/admin/sales/delete-tests', (req) => {
+    requireAdmin(req, 'owner');
+    if (req.body?.confirm !== 'EXCLUIR') fail(400, 'Digite EXCLUIR para confirmar.');
+    let rows;
+    if (Array.isArray(req.body?.ids) && req.body.ids.length) {
+      const ids = req.body.ids.map(Number).filter(Number.isInteger).slice(0, 1000);
+      rows = ids.length ? db.all(`SELECT id, provider, sale_id, provider_product_id FROM sales WHERE is_test = 1 AND id IN (${ids.map(() => '?').join(',')})`, ...ids) : [];
+    } else if (req.body?.all_tests) rows = db.all('SELECT id, provider, sale_id, provider_product_id FROM sales WHERE is_test = 1');
+    else fail(400, 'Escolha as vendas.');
+    const t = now();
+    db.tx(() => {
+      for (const s of rows) {
+        db.run('INSERT OR IGNORE INTO deleted_sales (provider, sale_id, provider_product_id, deleted_at) VALUES (?,?,?,?)', s.provider, s.sale_id, String(s.provider_product_id ?? ''), t);
+        db.run('DELETE FROM sales WHERE id = ? AND is_test = 1', s.id);
+      }
+    });
+    audit(req, 'sales.delete_tests', null, { count: rows.length, sales: rows.slice(0, 50).map((s) => s.sale_id) });
+    return { ok: true, count: rows.length };
   });
 
   r.get('/api/admin/abandoned', (req) => {

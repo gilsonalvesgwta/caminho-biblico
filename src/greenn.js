@@ -33,7 +33,9 @@ export async function processGreennEvent(p) {
   // Registra a venda (mesmo que o produto ainda não esteja mapeado)
   const saleId = String(p.sale?.id ?? p.contract?.id ?? p.sale_id ?? '');
   const metas = Object.fromEntries((p.saleMetas || []).map((m) => [m.meta_key, m.meta_value]));
-  if (saleId) {
+  // venda de teste excluída definitivamente: não volta para os números se a Greenn reenviar o aviso
+  const deletedSale = saleId && db.get("SELECT 1 FROM deleted_sales WHERE provider = 'greenn' AND sale_id = ? AND provider_product_id = ?", saleId, String(gpid));
+  if (saleId && !deletedSale) {
     const t = now();
     const prevStatus = db.get("SELECT status FROM sales WHERE provider = 'greenn' AND sale_id = ? AND provider_product_id = ?", saleId, gpid)?.status;
     const amount = Number(p.sale?.amount ?? p.contract?.amount ?? p.product?.amount ?? 0) || 0;

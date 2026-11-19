@@ -363,7 +363,23 @@ try {
   assert.equal((await call('admin', 'POST', '/api/admin/sales/mark-test', { all_tests: true, is_test: false })).json.count, prevw.c + 1);
   near((await call('admin', 'GET', `/api/admin/finance?from=${today}&to=${today}`)).json.cur.gross, g0, 'desfazer devolve os números');
   assert.equal((await call('user', 'POST', '/api/admin/sales/mark-test', { before: today })).status, 401);
-  step('intervalo da Meta personalizável e vendas de teste (marcar, zerar por data, desfazer)');
+  // excluir definitivamente: só vendas de teste, some do gráfico diário e não volta se a Greenn reenviar
+  const dayRev = async () => ((await call('admin', 'GET', '/api/admin/dashboard?days=7')).json.series || []).reduce((a, x) => a + (x.v || 0), 0);
+  const dr0 = await dayRev();
+  await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9990, amount: 33, method: 'PIX' }, client: { name: 'Teste Apagar', email: 'apagar@teste.com' } });
+  const s9990 = (await call('admin', 'GET', '/api/admin/sales?q=apagar@teste.com')).json.rows[0];
+  near(await dayRev(), dr0 + 33, 'venda entra no gráfico diário');
+  assert.equal((await call('admin', 'POST', '/api/admin/sales/delete-tests', { ids: [s9990.id], confirm: 'EXCLUIR' })).json.count, 0, 'venda real nunca é apagada');
+  assert.equal((await call('admin', 'POST', '/api/admin/sales/delete-tests', { ids: [s9990.id] })).status, 400, 'pede confirmação');
+  await call('admin', 'POST', '/api/admin/sales/mark-test', { ids: [s9990.id] });
+  near(await dayRev(), dr0, 'venda de teste sai do gráfico diário');
+  assert.equal((await call('user', 'POST', '/api/admin/sales/delete-tests', { all_tests: true, confirm: 'EXCLUIR' })).status, 401);
+  assert.equal((await call('admin', 'POST', '/api/admin/sales/delete-tests', { ids: [s9990.id], confirm: 'EXCLUIR' })).json.count, 1);
+  assert.equal((await call('admin', 'GET', '/api/admin/sales?q=apagar@teste.com')).json.rows.length, 0, 'venda apagada');
+  await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9990, amount: 33, method: 'PIX' }, client: { name: 'Teste Apagar', email: 'apagar@teste.com' } });
+  assert.equal((await call('admin', 'GET', '/api/admin/sales?q=apagar@teste.com')).json.rows.length, 0, 'reenvio da Greenn não traz de volta');
+  near(await dayRev(), dr0, 'gráfico continua sem a venda apagada');
+  step('intervalo da Meta personalizável e vendas de teste (marcar, zerar por data, desfazer, excluir definitivamente)');
   // venda aprovada dispara a atualização rápida da Meta (hoje e ontem), sem mexer no agendamento
   const attemptBefore = (await call('admin', 'GET', '/api/admin/meta/status')).json.nextSyncAt;
   const insightsBefore = fakeMeta.calls.filter((c) => c.endsWith('/insights')).length;

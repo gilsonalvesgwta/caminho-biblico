@@ -485,7 +485,7 @@ async function pageStudent(id) {
 // ---------- vendas ----------
 async function pageSales() {
   const st = { q: '', status: '', page: 1, tab: 'sales', test: '', sel: new Set() };
-  $('#main').innerHTML = head('Vendas', 'Tudo o que a Greenn enviou: vendas, reembolsos e carrinhos abandonados.', can('owner') ? '<button class="btn btn-soft" id="zero-tests">Zerar vendas de teste</button>' : '') + `<div class="tabs"><button class="on" data-t="sales">Vendas</button><button data-t="abandoned">Carrinhos abandonados</button></div><div class="panel" id="pnl"></div>`;
+  $('#main').innerHTML = head('Vendas', 'Tudo o que a Greenn enviou: vendas, reembolsos e carrinhos abandonados.', can('owner') ? '<button class="btn btn-soft" id="zero-tests">Zerar vendas de teste</button><button class="btn btn-ghost" id="del-tests">Excluir vendas de teste</button>' : '') + `<div class="tabs"><button class="on" data-t="sales">Vendas</button><button data-t="abandoned">Carrinhos abandonados</button></div><div class="panel" id="pnl"></div>`;
   const load = async () => {
     if (st.tab === 'abandoned') {
       const d = await api(`/api/admin/abandoned?page=${st.page}`);
@@ -497,7 +497,7 @@ async function pageSales() {
     $('#pnl').innerHTML = `<div class="toolbar"><input class="input search" id="q" placeholder="E-mail, nome, ID da venda ou produto" value="${esc(st.q)}"><select class="input" id="s"><option value="">Todos os status</option>${['paid', 'waiting_payment', 'refused', 'refunded', 'chargedback'].map((s) => `<option value="${s}" ${st.status === s ? 'selected' : ''}>${STATUS[s][0]}</option>`).join('')}</select>
       <select class="input" id="tf"><option value="">Com vendas de teste</option><option value="hide" ${st.test === 'hide' ? 'selected' : ''}>Sem vendas de teste</option><option value="only" ${st.test === 'only' ? 'selected' : ''}>Só vendas de teste${d.tests ? ` (${d.tests})` : ''}</option></select>
       <span class="faint" style="margin-left:auto">Total pago no filtro (sem testes): <b>${brl(d.paidValue)}</b></span></div>
-      ${owner ? `<div class="bulk-bar" id="bulk" ${st.sel.size ? '' : 'hidden'}><b id="bulk-n">${st.sel.size} selecionada(s)</b><button class="btn btn-soft btn-sm" data-mark="1">Marcar como teste</button><button class="btn btn-ghost btn-sm" data-mark="0">Desmarcar teste</button><button class="btn btn-ghost btn-sm" id="bulk-clear">Limpar seleção</button></div>` : ''}
+      ${owner ? `<div class="bulk-bar" id="bulk" ${st.sel.size ? '' : 'hidden'}><b id="bulk-n">${st.sel.size} selecionada(s)</b><button class="btn btn-soft btn-sm" data-mark="1">Marcar como teste</button><button class="btn btn-ghost btn-sm" data-mark="0">Desmarcar teste</button><button class="btn btn-danger btn-sm" id="bulk-del">Excluir testes selecionados</button><button class="btn btn-ghost btn-sm" id="bulk-clear">Limpar seleção</button></div>` : ''}
       <div class="tbl-wrap"><table class="tbl"><thead><tr>${owner ? '<th style="width:34px"><input type="checkbox" id="sel-all" title="Selecionar a página"></th>' : ''}<th>Cliente</th><th>Produto</th><th>Status</th><th>Pagamento</th><th>Origem</th><th class="r">Valor</th><th>Data</th></tr></thead><tbody>
       ${d.rows.map((s) => { const wa = (s.phone || '').replace(/\D/g, ''); return `<tr class="${s.user_id ? 'click' : ''} ${s.is_test ? 'is-test' : ''}" data-user="${s.user_id || ''}">${owner ? `<td data-stop><input type="checkbox" data-sel="${s.id}" ${st.sel.has(s.id) ? 'checked' : ''}></td>` : ''}<td>${s.is_test ? '<span class="badge warn" style="margin-bottom:4px">Teste</span><br>' : ''}${who(s.name, s.email, wa ? ` · <a href="https://wa.me/${wa}" target="_blank" data-stop>${esc(s.phone)}</a>` : '')}</td><td>${esc(s.product_name || '')}<br><small class="faint">#${esc(s.provider_product_id)} · venda ${esc(s.sale_id)}</small></td><td>${badge(s.status)}</td><td>${esc(s.method || '—')}${s.installments > 1 ? ` · ${s.installments}x` : ''}${s.coupon ? `<br><small class="faint">cupom ${esc(s.coupon)}</small>` : ''}</td><td><small>${esc([s.utm_source, s.utm_campaign].filter(Boolean).join(' / ') || '—')}</small></td><td class="r">${brl(s.amount)}</td><td>${fmtDateTime(s.created_at)}</td></tr>`; }).join('') || `<tr><td colspan="${owner ? 8 : 7}" class="empty">Nenhuma venda encontrada.</td></tr>`}
       </tbody></table></div>${pager(d, (p) => { st.page = p; load(); })}`;
@@ -506,6 +506,12 @@ async function pageSales() {
     $$('[data-sel]').forEach((c) => c.addEventListener('change', () => { const id = Number(c.dataset.sel); c.checked ? st.sel.add(id) : st.sel.delete(id); syncBulk(); }));
     $('#sel-all')?.addEventListener('change', (e) => { $$('[data-sel]').forEach((c) => { c.checked = e.target.checked; const id = Number(c.dataset.sel); e.target.checked ? st.sel.add(id) : st.sel.delete(id); }); syncBulk(); });
     $('#bulk-clear')?.addEventListener('click', () => { st.sel.clear(); load(); });
+    $('#bulk-del')?.addEventListener('click', () => {
+      const tests = d.rows.filter((x) => x.is_test && st.sel.has(x.id)).map((x) => x.id);
+      const other = [...st.sel].filter((id) => !tests.includes(id) && d.rows.some((x) => x.id === id && !x.is_test)).length;
+      if (!tests.length) return toast('Só vendas marcadas como "Teste" podem ser excluídas. Marque-as como teste primeiro.', { error: true, ms: 5000 });
+      deleteTestsModal({ ids: tests, count: tests.length, skipped: other }, () => { st.sel.clear(); load(); });
+    });
     $$('[data-mark]').forEach((b) => (b.onclick = async () => {
       const flag = b.dataset.mark === '1';
       const r = await api('/api/admin/sales/mark-test', { method: 'POST', body: { ids: [...st.sel], is_test: flag } });
@@ -518,6 +524,11 @@ async function pageSales() {
   };
   $$('[data-t]').forEach((b) => (b.onclick = () => { $$('[data-t]').forEach((x) => x.classList.toggle('on', x === b)); st.tab = b.dataset.t; st.page = 1; load(); }));
   $('#zero-tests')?.addEventListener('click', () => zeroTestsModal(load));
+  $('#del-tests')?.addEventListener('click', async () => {
+    const r = await api('/api/admin/sales?test=only&page=1');
+    if (!r.tests) return toast('Não há vendas marcadas como teste. Use "Zerar vendas de teste" ou marque as vendas na lista primeiro.', { ms: 6000 });
+    deleteTestsModal({ all: true, count: r.tests }, () => { st.sel.clear(); load(); });
+  });
   load();
 }
 
@@ -548,6 +559,28 @@ function zeroTestsModal(reload) {
       if (!confirm('Fazer todas as vendas marcadas como teste voltarem a contar nos números?')) return;
       const r = await api('/api/admin/sales/mark-test', { method: 'POST', body: { all_tests: true, is_test: false } }); close(); toast(`${r.count} venda(s) voltaram a contar.`); reload();
     };
+  } });
+}
+
+/** Excluir definitivamente vendas de teste (some da lista e de todos os números; não dá para desfazer) */
+function deleteTestsModal({ ids, all, count, skipped = 0 }, reload) {
+  modal({ title: 'Excluir vendas de teste', eyebrow: 'Vendas', body: `
+    <p class="muted" style="margin-top:0">${count} venda(s) de teste ${all ? '(todas as marcadas como "Teste")' : 'selecionada(s)'} serão <b>apagadas para sempre</b>.</p>
+    <ul class="zt-list"><li><b>Somem de tudo:</b> lista de vendas, Visão geral, Financeiro e Anúncios.</li><li><b>Não voltam:</b> se a Greenn reenviar o aviso dessas vendas, elas são ignoradas.</li><li><b>O acesso dos alunos não muda.</b> Para tirar o acesso de alguém, use a ficha do aluno.</li><li><b>Não dá para desfazer.</b> Se só quer tirar dos números, deixe como "Teste".</li></ul>
+    ${skipped ? `<p class="hint">${skipped} venda(s) selecionada(s) não estão marcadas como teste e não serão apagadas.</p>` : ''}
+    <div class="field"><label>Para confirmar, digite <b>EXCLUIR</b></label><input class="input" id="dt-confirm" autocomplete="off" placeholder="EXCLUIR"></div>
+    <div class="modal-actions"><button class="btn btn-danger" id="dt-go" disabled>Excluir ${count} venda(s) para sempre</button><button class="btn btn-ghost" id="dt-cancel">Cancelar</button></div>`,
+  onMount: (m, close) => {
+    const inp = m.querySelector('#dt-confirm'), go = m.querySelector('#dt-go');
+    inp.addEventListener('input', () => { go.disabled = inp.value.trim().toUpperCase() !== 'EXCLUIR'; });
+    m.querySelector('#dt-cancel').onclick = close;
+    go.onclick = (e) => withLoading(e.target, async () => {
+      try {
+        const r = await api('/api/admin/sales/delete-tests', { method: 'POST', body: { confirm: 'EXCLUIR', ...(all ? { all_tests: true } : { ids }) } });
+        close(); toast(`${r.count} venda(s) de teste excluída(s) definitivamente.`, { ms: 5000 }); reload();
+      } catch (er) { toast(er.message, { error: true }); }
+    });
+    setTimeout(() => inp.focus(), 50);
   } });
 }
 
