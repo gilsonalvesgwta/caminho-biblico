@@ -480,7 +480,7 @@ export function registerAdminRoutes(r) {
   // ---------- produtos e conteúdo ----------
   r.get('/api/admin/products', (req) => {
     requireAdmin(req);
-    return { rows: db.all(`SELECT p.*, (SELECT COUNT(*) FROM lessons l WHERE l.product_id = p.id) lessons, (SELECT COUNT(*) FROM enrollments e WHERE e.product_id = p.id AND e.status = 'active' AND (e.expires_at IS NULL OR e.expires_at > datetime('now'))) students FROM products p ORDER BY position, id`).map((p) => ({ ...p, materials: jparse(p.materials, []), theme_obj: jparse(p.theme, {}) })) };
+    return { rows: db.all(`SELECT p.*, (SELECT COUNT(*) FROM lessons l WHERE l.product_id = p.id) lessons, (SELECT COUNT(*) FROM enrollments e WHERE e.product_id = p.id AND e.status = 'active' AND (e.expires_at IS NULL OR e.expires_at > datetime('now'))) students FROM products p ORDER BY position, id`).map((p) => ({ ...p, materials: jparse(p.materials, []), theme_obj: jparse(p.theme, {}), modules: jparse(p.modules, []) })) };
   });
   // Campos do produto (identidade visual incluída). Ordem = colunas de PRODUCT_COLS.
   const PRODUCT_COLS = ['slug', 'name', 'kind', 'tagline', 'description', 'greenn_ids', 'release_mode', 'release_delay_hours', 'access_days', 'materials', 'position', 'active',
@@ -613,20 +613,55 @@ export function registerAdminRoutes(r) {
     audit(req, 'settings.logo.remove', null, { target: req.query.target });
     return { ok: true };
   });
+  // Módulos do produto: lista ordenada. Renomear atualiza as aulas; remover deixa as aulas "sem módulo".
+  // body.modules = [{ name, was }] — was = nome anterior (null para módulo novo)
+  r.put('/api/admin/products/:id/modules', (req) => {
+    requireAdmin(req, 'admin');
+    const p = db.get('SELECT id, modules FROM products WHERE id = ?', Number(req.params.id));
+    if (!p) fail(404, 'Produto não encontrado.');
+    const list = Array.isArray(req.body?.modules) ? req.body.modules.slice(0, 100) : fail(400, 'Lista de módulos inválida.');
+    const out = [], seen = new Set(), renames = [];
+    for (const m of list) {
+      const name = String((typeof m === 'string' ? m : m?.name) || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (!name) fail(400, 'Todo módulo precisa de um nome.');
+      if (seen.has(name.toLowerCase())) fail(400, `O módulo "${name}" aparece duas vezes.`);
+      seen.add(name.toLowerCase()); out.push(name);
+      const was = typeof m === 'object' && m?.was ? String(m.was).trim() : null;
+      if (was && was !== name) renames.push([was, name]);
+    }
+    const old = jparse(p.modules, []);
+    const kept = new Set([...out, ...renames.map(([w]) => w)].map((x) => x.toLowerCase()));
+    let moved = 0, cleared = 0;
+    db.tx(() => {
+      for (const [was, name] of renames) moved += db.run('UPDATE lessons SET block = ? WHERE product_id = ? AND TRIM(block) = ?', name, p.id, was).changes;
+      for (const gone of old.filter((x) => !kept.has(String(x).toLowerCase()))) cleared += db.run("UPDATE lessons SET block = '' WHERE product_id = ? AND TRIM(block) = ?", p.id, gone).changes;
+      db.run('UPDATE products SET modules = ?, updated_at = ? WHERE id = ?', JSON.stringify(out), now(), p.id);
+    });
+    audit(req, 'product.modules', p.id, { modules: out, moved, cleared });
+    return { ok: true, modules: out, moved, cleared };
+  });
   r.get('/api/admin/products/:id/lessons', (req) => {
     requireAdmin(req);
     return { rows: db.all('SELECT * FROM lessons WHERE product_id = ? ORDER BY number', Number(req.params.id)).map((l) => ({ ...l, key_phrases: jparse(l.key_phrases, []), verses: jparse(l.verses, []), blocks: jparse(l.blocks, []) })) };
   });
-  const lessonFields = (b, cur = {}) => [b.number ?? cur.number, b.block ?? cur.block ?? '', b.title ?? cur.title, b.subtitle ?? cur.subtitle ?? '', b.objective ?? cur.objective ?? '',
+  const lessonFields = (b, cur = {}) => [b.number ?? cur.number, String(b.block ?? cur.block ?? '').replace(/\s+/g, ' ').trim().slice(0, 60), b.title ?? cur.title, b.subtitle ?? cur.subtitle ?? '', b.objective ?? cur.objective ?? '',
     b.video_url ?? cur.video_url ?? '', b.video_duration ?? cur.video_duration ?? '', b.practice_video_url ?? cur.practice_video_url ?? '', b.practice_duration ?? cur.practice_duration ?? '',
     JSON.stringify(b.key_phrases ?? jparse(cur.key_phrases, [])), JSON.stringify(b.verses ?? jparse(cur.verses, [])), b.body ?? cur.body ?? '',
     b.activity_key === undefined ? (cur.activity_key ?? null) : (b.activity_key || null), Number(b.release_offset ?? cur.release_offset ?? 0),
     b.release_message ?? cur.release_message ?? '', b.tomorrow ?? cur.tomorrow ?? '', b.published === undefined ? (cur.published ?? 1) : (b.published ? 1 : 0)];
+  // aula com um módulo que ainda não está na lista do produto: entra na lista (nunca fica um nome solto)
+  const ensureModule = (pid, name) => {
+    name = String(name || '').trim(); if (!name) return;
+    const p = db.get('SELECT modules FROM products WHERE id = ?', pid); if (!p) return;
+    const mods = jparse(p.modules, []);
+    if (!mods.some((m) => String(m).toLowerCase() === name.toLowerCase())) db.run('UPDATE products SET modules = ? WHERE id = ?', JSON.stringify([...mods, name]), pid);
+  };
   r.post('/api/admin/products/:id/lessons', (req) => {
     requireAdmin(req, 'admin');
     const pid = Number(req.params.id);
     const nextN = (db.get('SELECT MAX(number) m FROM lessons WHERE product_id = ?', pid).m || 0) + 1;
     const f = lessonFields({ number: nextN, title: 'Nova aula', ...req.body });
+    ensureModule(pid, f[1]);
     const res0 = db.run(`INSERT INTO lessons (product_id, number, block, title, subtitle, objective, video_url, video_duration, practice_video_url, practice_duration, key_phrases, verses, body, activity_key, release_offset, release_message, tomorrow, published, created_at, updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, pid, ...f, now(), now());
     audit(req, 'lesson.create', res0.lastInsertRowid);
@@ -642,6 +677,7 @@ export function registerAdminRoutes(r) {
     // frase abaixo do vídeo: null = usar a do produto; '' = nenhuma; texto = personalizada
     if (req.body.blocks !== undefined) db.run('UPDATE lessons SET blocks = ? WHERE id = ?', JSON.stringify(sanitizeBlocks(req.body.blocks)), cur.id);
     if (req.body.watch_note !== undefined) db.run('UPDATE lessons SET watch_note = ? WHERE id = ?', req.body.watch_note === null ? null : String(req.body.watch_note).trim().slice(0, 300), cur.id);
+    ensureModule(cur.product_id, f[1]);
     audit(req, 'lesson.update', cur.id, { title: f[2] });
     return { ok: true };
   });

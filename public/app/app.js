@@ -4,6 +4,7 @@ import { mountActivity, casaHtml, planoHtml, fmtLive, liveDateHtml } from '/acti
 import { mountPlayer, youtubeId } from '/shared/player.js';
 import { applyTheme, resetTheme, themeVars, varsToStyle, loadFont, normalizeTheme } from '/shared/theme.js';
 import { productCardHtml } from '/shared/pcard.js';
+import { openPdf, canReadPdf } from '/shared/pdfviewer.js';
 
 const app = document.getElementById('app');
 let ME = null;
@@ -395,6 +396,8 @@ async function pageDay(p, n) {
   const own1 = youtubeId(L.video_url), own2 = youtubeId(L.practice_video_url);
   const v1 = own1 ? `<div id="pp1"></div>` : videoEmbed(L.video_url, `${u.label} ${n}`);
   const v2 = own2 ? `<div id="pp2"></div>` : videoEmbed(L.practice_video_url, `Prática · ${u.label} ${n}`);
+  // aula sem vídeo (só material, texto ou blocos): não mostra a tela do player
+  const hasVideo = !!String(L.video_url || '').trim();
   const player = (html, label) => (html && html.startsWith('<div id="pp') ? html : `<div class="player">${html || `<div class="player-empty"><div><b>${label}</b>O vídeo será publicado em breve.</div></div>`}</div>`);
   shell(`
     <a class="back no-print" href="${home}" data-link>${ICON.back} ${p.hasActivities ? 'Jornada' : 'Conteúdo'}</a>
@@ -402,10 +405,10 @@ async function pageDay(p, n) {
       <h1>${esc(L.title)}</h1>${L.subtitle ? `<p>${esc(L.subtitle)}</p>` : ''}
       <div class="steps" id="steps"><span></span><span></span><span></span></div></header>
 
-    <section class="step-card"><div class="step-h"><span class="step-n ${st.watched ? 'done' : ''}" id="s1">1</span><h2>A aula</h2><span class="meta">${esc(L.video_duration || '')}</span></div>
+    ${hasVideo ? `<section class="step-card"><div class="step-h"><span class="step-n ${st.watched ? 'done' : ''}" id="s1">1</span><h2>A aula</h2><span class="meta">${esc(L.video_duration || '')}</span></div>
       ${player(v1, 'Aula do dia')}
       <div class="watch-row">${d.watchNote ? `<span class="faint" style="font-size:13px">${esc(d.watchNote)}</span>` : '<span></span>'}${watchBtn('w1', st.watched, 'Aula assistida', 'Marcar aula como assistida')}</div>
-    </section>
+    </section>` : ''}
 
     ${L.objective ? `<div class="objective" style="margin-top:22px"><div class="eyebrow" style="margin-bottom:6px">${u.label === 'Dia' ? 'Objetivo de hoje' : `Objetivo d${u.o} ${esc(u.label.toLowerCase())}`}</div>${esc(L.objective)}</div>` : ''}
     ${quotesHtml(d.product?.quotesTitle || 'Para refletir', L.verses)}
@@ -421,7 +424,7 @@ async function pageDay(p, n) {
     <div class="finish" id="finish"></div>
   `, 'home');
 
-  const steps = () => { const on = [st.watched, st.practiceWatched || !L.practice_video_url, st.completed]; document.querySelectorAll('#steps span').forEach((s, i) => s.classList.toggle('on', on[i])); };
+  const steps = () => { const on = [st.watched || !hasVideo, st.practiceWatched || !L.practice_video_url, st.completed]; document.querySelectorAll('#steps span').forEach((s, i) => s.classList.toggle('on', on[i])); };
   steps();
   const progress = async (action) => {
     const r = await api(`/api/app/p/${p.slug}/day/${n}/progress`, { method: 'POST', body: { action } });
@@ -539,6 +542,9 @@ function richText(src) {
   }).join('');
 }
 const FILE_ICON = { pdf: 'PDF', doc: 'DOC', docx: 'DOC', xls: 'XLS', xlsx: 'XLS', csv: 'CSV', ppt: 'PPT', pptx: 'PPT', zip: 'ZIP', mp3: 'MP3', m4a: 'M4A', png: 'IMG', jpg: 'IMG', jpeg: 'IMG' };
+const pdfName = (t) => `${String(t || 'material').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'material'}.pdf`;
+const ICON_READ = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICON_DL = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
 const fileKind = (url) => { const e = (String(url).split('?')[0].match(/\.([a-z0-9]{2,5})$/i)?.[1] || '').toLowerCase(); return FILE_ICON[e] || null; };
 const BLOCK_ICON = {
   materials: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
@@ -560,7 +566,10 @@ function blockHtml(b, ans) {
     case 'quotes': return `<section class="blk-bare">${quotesHtml(b.title || 'Para refletir', b.items)}</section>`;
     case 'points': return `<section class="blk-bare">${pointsHtml(b.title || 'Para lembrar', b.items)}</section>`;
     case 'callout': { const [lab, ic] = CALLOUT[b.variant] || CALLOUT.tip; return `<aside class="blk callout ${b.variant || 'tip'}"><span class="co-ic" aria-hidden="true">${ic}</span><div><b>${esc(b.title || lab)}</b><div class="rich">${richText(b.body)}</div></div></aside>`; }
-    case 'materials': return `<section class="blk">${head('Materiais de apoio', BLOCK_ICON.materials)}<div class="mats">${(b.items || []).map((m) => { const k = fileKind(m.url); return `<a class="mat" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer"${k && k !== 'IMG' ? ' download' : ''}><span class="mat-k ${k ? '' : 'link'}">${k || '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>'}</span><span class="mat-t"><b>${esc(m.title)}</b>${m.desc ? `<small>${esc(m.desc)}</small>` : ''}</span><span class="mat-go">${k && k !== 'IMG' ? 'Baixar' : 'Abrir'} ${ICON.arrow}</span></a>`; }).join('')}</div></section>`;
+    case 'materials': return `<section class="blk">${head('Materiais de apoio', BLOCK_ICON.materials)}<div class="mats">${(b.items || []).map((m) => { const k = fileKind(m.url);
+      // PDF enviado pelo painel: lê aqui mesmo, com a opção de baixar ao lado
+      if (k === 'PDF' && canReadPdf(m.url)) return `<div class="mat mat-pdf" role="button" tabindex="0" data-pdf="${esc(m.url)}" data-title="${esc(m.title)}"><span class="mat-k">PDF</span><span class="mat-t"><b>${esc(m.title)}</b>${m.desc ? `<small>${esc(m.desc)}</small>` : ''}</span><span class="mat-acts"><span class="mat-read">${ICON_READ} Ler</span><a class="mat-dl" href="${esc(m.url)}" download="${esc(pdfName(m.title))}" aria-label="Baixar ${esc(m.title)}" title="Baixar">${ICON_DL}</a></span></div>`;
+      return `<a class="mat" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer"${k && k !== 'IMG' ? ' download' : ''}><span class="mat-k ${k ? '' : 'link'}">${k || '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>'}</span><span class="mat-t"><b>${esc(m.title)}</b>${m.desc ? `<small>${esc(m.desc)}</small>` : ''}</span><span class="mat-go">${k && k !== 'IMG' ? 'Baixar' : 'Abrir'} ${ICON.arrow}</span></a>`; }).join('')}</div></section>`;
     case 'exercise': return `<section class="blk blk-ex" data-blk="${b.id}">${head('Exercício', BLOCK_ICON.exercise)}${b.required ? '<span class="blk-req">Obrigatório para concluir</span>' : ''}${b.questions.map((q, i) => `<div class="field ex-q"><label>${b.questions.length > 1 ? `<span class="ex-n">${i + 1}</span>` : ''}${esc(q)}</label><textarea class="input" rows="3" data-q="${i}" placeholder="Escreva a sua resposta">${esc(ans?.answers?.[i] || '')}</textarea></div>`).join('')}<div class="blk-save" data-save>${ans ? 'Resposta salva' : 'As respostas são salvas automaticamente'}</div></section>`;
     case 'checklist': { const done = new Set(ans?.done || []); return `<section class="blk blk-ck" data-blk="${b.id}">${head('Tarefas', BLOCK_ICON.checklist)}${b.required ? '<span class="blk-req">Obrigatório para concluir</span>' : ''}<div class="ck-prog"><span data-ckc>${done.size} de ${b.items.length}</span><i><b style="width:${(done.size / b.items.length) * 100}%"></b></i></div><ul class="ck">${b.items.map((t, i) => `<li><label class="${done.has(i) ? 'on' : ''}"><input type="checkbox" data-i="${i}" ${done.has(i) ? 'checked' : ''}><span class="ck-box">${ICON.check}</span><span>${esc(t)}</span></label></li>`).join('')}</ul></section>`; }
     case 'video': { const own = youtubeId(b.url); return `<section class="blk blk-vid">${head('Vídeo complementar', BLOCK_ICON.video)}${b.duration ? `<span class="blk-meta">${esc(b.duration)}</span>` : ''}${own ? `<div id="pv-${b.id}"></div>` : `<div class="player">${videoEmbed(b.url, b.title || 'Vídeo') || '<div class="player-empty"><div><b>Vídeo</b>Em breve.</div></div>'}</div>`}</section>`; }
@@ -569,6 +578,12 @@ function blockHtml(b, ans) {
   }
 }
 function bindBlocks(p, n, blocks, answers) {
+  // materiais em PDF: abre o leitor (o botão de baixar ao lado continua baixando)
+  document.querySelectorAll('[data-pdf]').forEach((el) => {
+    const open = (e) => { if (e.target.closest('.mat-dl')) return; e.preventDefault(); openPdf({ url: el.dataset.pdf, title: el.dataset.title, downloadName: pdfName(el.dataset.title) }); };
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') open(e); });
+  });
   const save = (b, data, el) => api(`/api/app/p/${p.slug}/day/${n}/blocks/${b.id}`, { method: 'PUT', body: { data } })
     .then(() => { if (el) el.textContent = 'Resposta salva'; answers[b.id] = data; })
     .catch((e) => { if (el) el.textContent = 'Não foi possível salvar. Verifique a conexão.'; toast(e.message, { error: true }); });

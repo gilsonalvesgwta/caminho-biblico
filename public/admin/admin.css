@@ -472,3 +472,27 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .wa-test b { margin-right: 6px; } .wa-test .input { width: auto; } #wa-test-phone { min-width: 240px; }
 .si-sale { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); width: 100%; }
 .si-custom[hidden] { display: none; }
+
+/* ---------- módulos ---------- */
+.mod-pick { display: flex; gap: 8px; }
+.mod-pick select { flex: 1; min-width: 0; }
+.mod-pick .btn { flex: none; height: auto; }
+.mod-pick .btn[hidden] { display: none; }
+.mod-new { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.mod-new[hidden] { display: none; }
+.mod-new .input { flex: 1; min-width: 0; }
+.mods { display: grid; gap: 8px; margin-bottom: 14px; }
+.mod-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px; border: 1px solid var(--line); border-radius: 14px; background: #FDFCF8; }
+.mod-row .input { flex: 1; min-width: 0; height: 40px; }
+.mod-n { width: 26px; height: 26px; border-radius: 999px; display: grid; place-items: center; background: var(--ink-900); color: var(--gold-300); font-size: 12px; font-weight: 800; flex: none; }
+.mod-c { font-size: 12px; color: var(--text-3); white-space: nowrap; min-width: 58px; text-align: right; }
+.mod-btns { display: inline-flex; gap: 4px; flex: none; }
+.mod-b { width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--line); background: #fff; color: var(--text-2); font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.mod-b:hover:not(:disabled) { border-color: var(--gold-500); color: var(--text); }
+.mod-b:disabled { opacity: .35; cursor: default; }
+.mod-b.del:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+.mod-addrow { display: flex; gap: 8px; }
+.mod-addrow .input { flex: 1; min-width: 0; }
+.mod-head { padding: 16px 18px 6px; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--gold-600); }
+.mod-head:first-child { padding-top: 6px; }
+@media (max-width: 560px) { .mod-c { display: none; } .mod-row { gap: 8px; } }

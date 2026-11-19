@@ -796,11 +796,96 @@ async function pageProduct(id) {
   const p = products.find((x) => String(x.id) === String(id));
   if (!p) return go('/conteudo');
   currentProductNote = p.watch_note || ''; currentProduct = p;
-  $('#main').innerHTML = `<a href="${BASE}/conteudo" data-go="/conteudo" class="faint" style="font-weight:700">← Conteúdo</a>` + head(esc(p.name), esc(p.tagline || ''), can('admin') ? `<button class="btn btn-soft" id="cfg">Configurar produto</button>${p.kind !== 'bonus' ? '<button class="btn btn-primary" id="nl">+ Nova aula</button>' : ''}` : '') + `
-    <div class="panel">${lessons.map((l) => `<div class="lesson-item" data-id="${l.id}"><div class="n">${l.number}</div><div style="flex:1;min-width:0"><b style="font-size:15px">${esc(l.title)}</b><br><small class="faint">${esc(l.block || '')}${l.video_duration ? ` · ${esc(l.video_duration)}` : ''} · ${l.video_url ? 'aula ✓' : '<span style="color:var(--warn)">aula sem vídeo</span>'} · ${l.practice_video_url ? 'prática ✓' : '<span style="color:var(--warn)">prática sem vídeo</span>'}</small></div>${l.published ? '<span class="badge ok">Publicada</span>' : '<span class="badge">Rascunho</span>'}</div>`).join('') || '<div class="empty">Nenhuma aula neste produto.</div>'}</div>`;
+  $('#main').innerHTML = `<a href="${BASE}/conteudo" data-go="/conteudo" class="faint" style="font-weight:700">← Conteúdo</a>` + head(esc(p.name), esc(p.tagline || ''), can('admin') ? `<button class="btn btn-soft" id="cfg">Configurar produto</button>${p.kind !== 'bonus' ? '<button class="btn btn-soft" id="mods-btn">Módulos</button><button class="btn btn-primary" id="nl">+ Nova aula</button>' : ''}` : '') + `
+    <div class="panel">${lessons.map((l, i) => { const mod = (l.block || '').trim(), prevMod = i ? (lessons[i - 1].block || '').trim() : null; const meta = [l.video_url ? `vídeo ✓${l.video_duration ? ` · ${esc(l.video_duration)}` : ''}` : 'sem vídeo', l.activity_key ? (l.practice_video_url ? 'prática ✓' : '<span style="color:var(--warn)">prática sem vídeo</span>') : '', (l.blocks || []).length ? `${l.blocks.length} bloco(s)` : ''].filter(Boolean).join(' · ');
+      return `${mod !== prevMod && (mod || i) ? `<div class="mod-head">${mod ? esc(mod) : 'Sem módulo'}</div>` : ''}<div class="lesson-item" data-id="${l.id}"><div class="n">${l.number}</div><div style="flex:1;min-width:0"><b style="font-size:15px">${esc(l.title)}</b><br><small class="faint">${meta}</small></div>${l.published ? '<span class="badge ok">Publicada</span>' : '<span class="badge">Rascunho</span>'}</div>`; }).join('') || '<div class="empty">Nenhuma aula neste produto.</div>'}</div>`;
   $('#cfg')?.addEventListener('click', () => productModal(p));
+  $('#mods-btn')?.addEventListener('click', () => modulesModal(p, lessons, () => pageProduct(id)));
   $('#nl')?.addEventListener('click', async () => { const r = await api(`/api/admin/products/${id}/lessons`, { method: 'POST', body: {} }); toast('Aula criada'); await pageProduct(id); lessonModal(r.id, id); });
   $$('.lesson-item').forEach((el) => (el.onclick = () => lessonModal(Number(el.dataset.id), id)));
+}
+
+// ---------- módulos do produto ----------
+const productModules = () => (Array.isArray(currentProduct?.modules) ? currentProduct.modules : []);
+function moduleOptions(sel) {
+  const mods = productModules();
+  const extra = sel && !mods.some((x) => x.toLowerCase() === String(sel).toLowerCase()) ? [sel] : []; // nome antigo que ainda não está na lista
+  return `<option value="">Sem módulo</option>${[...mods, ...extra].map((x) => `<option value="${esc(x)}" ${x === sel ? 'selected' : ''}>${esc(x)}</option>`).join('')}`;
+}
+function moduleField(sel) {
+  return `<div class="mod-pick"><select class="input" name="block" id="mod-sel">${moduleOptions(sel)}</select>${can('admin') ? '<button type="button" class="btn btn-soft" id="mod-add" title="Cadastrar um novo módulo">+ Novo</button>' : ''}</div>
+    <div class="mod-new" id="mod-new" hidden><input class="input" id="mod-name" maxlength="60" placeholder="Nome do novo módulo"><button type="button" class="btn btn-primary btn-sm" id="mod-ok">Adicionar</button><button type="button" class="btn btn-ghost btn-sm" id="mod-cancel">Cancelar</button></div>
+    <span class="hint">${productModules().length ? 'Escolha da lista. Para renomear ou mudar a ordem, use <b>Módulos</b> na página do produto.' : 'Cadastre o primeiro módulo em <b>+ Novo</b>. Depois é só escolher.'}</span>`;
+}
+function bindModuleField(m, pid) {
+  const box = m.querySelector('#mod-new'), name = m.querySelector('#mod-name'), sel = m.querySelector('#mod-sel');
+  if (!box || !sel) return;
+  const show = (on) => { box.hidden = !on; m.querySelector('#mod-add').hidden = on; if (on) { name.value = ''; name.focus(); } };
+  m.querySelector('#mod-add').onclick = () => show(true);
+  m.querySelector('#mod-cancel').onclick = () => show(false);
+  const add = async () => {
+    const v = name.value.replace(/\s+/g, ' ').trim();
+    if (!v) { name.focus(); return; }
+    const hit = productModules().find((x) => x.toLowerCase() === v.toLowerCase());
+    if (!hit) {
+      try {
+        const r = await api(`/api/admin/products/${pid}/modules`, { method: 'PUT', body: { modules: [...productModules().map((x) => ({ name: x, was: x })), { name: v }] } });
+        currentProduct.modules = r.modules;
+      } catch (er) { toast(er.message, { error: true }); return; }
+    }
+    sel.innerHTML = moduleOptions(hit || v); sel.value = hit || v;
+    show(false); toast(hit ? 'Esse módulo já existia e foi selecionado.' : `Módulo "${v}" cadastrado.`);
+  };
+  m.querySelector('#mod-ok').onclick = add;
+  name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); show(false); } });
+}
+/** Cadastro de módulos: nomes, ordem e remoção (renomear atualiza as aulas de uma vez) */
+function modulesModal(p, lessons, reload) {
+  let rows = (p.modules || []).map((x) => ({ name: x, was: x }));
+  const count = (n) => lessons.filter((l) => (l.block || '').trim().toLowerCase() === String(n || '').toLowerCase()).length;
+  modal({ title: 'Módulos', eyebrow: esc(p.name), body: `
+    <p class="muted" style="margin-top:0">Cadastre os módulos uma vez e escolha da lista em cada aula. Renomear aqui atualiza todas as aulas do módulo.</p>
+    <div class="mods" id="mods"></div>
+    <div class="mod-addrow"><input class="input" id="mm-name" maxlength="60" placeholder="Nome do novo módulo (ex.: Fundamentos)"><button type="button" class="btn btn-soft" id="mm-add">+ Adicionar</button></div>
+    <div class="modal-actions"><button class="btn btn-primary" id="mm-save">Salvar módulos</button><button class="btn btn-ghost" id="mm-cancel">Cancelar</button></div>`,
+  onMount: (m, close) => {
+    const list = m.querySelector('#mods');
+    const draw = () => {
+      list.innerHTML = rows.length ? rows.map((r, i) => `<div class="mod-row" data-i="${i}">
+        <span class="mod-n">${i + 1}</span>
+        <input class="input" data-name value="${esc(r.name)}" maxlength="60" aria-label="Nome do módulo ${i + 1}">
+        <span class="mod-c">${r.was ? `${count(r.was)} aula(s)` : 'novo'}</span>
+        <span class="mod-btns"><button type="button" class="mod-b" data-up ${i ? '' : 'disabled'} aria-label="Subir">↑</button><button type="button" class="mod-b" data-down ${i < rows.length - 1 ? '' : 'disabled'} aria-label="Descer">↓</button><button type="button" class="mod-b del" data-del aria-label="Remover">×</button></span>
+      </div>`).join('') : '<div class="empty" style="padding:22px">Nenhum módulo ainda. Adicione o primeiro abaixo.</div>';
+      list.querySelectorAll('.mod-row').forEach((row) => {
+        const i = Number(row.dataset.i);
+        row.querySelector('[data-name]').oninput = (e) => { rows[i].name = e.target.value; };
+        row.querySelector('[data-up]').onclick = () => { [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; draw(); };
+        row.querySelector('[data-down]').onclick = () => { [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; draw(); };
+        row.querySelector('[data-del]').onclick = () => {
+          const n = rows[i].was ? count(rows[i].was) : 0;
+          if (n && !confirm(`O módulo "${rows[i].name}" tem ${n} aula(s). Elas ficam sem módulo (nada é apagado). Remover?`)) return;
+          rows.splice(i, 1); draw();
+        };
+      });
+    };
+    draw();
+    const add = () => {
+      const inp = m.querySelector('#mm-name'); const v = inp.value.replace(/\s+/g, ' ').trim();
+      if (!v) { inp.focus(); return; }
+      if (rows.some((r) => r.name.trim().toLowerCase() === v.toLowerCase())) { toast('Já existe um módulo com esse nome.', { error: true }); return; }
+      rows.push({ name: v, was: null }); inp.value = ''; draw(); inp.focus();
+    };
+    m.querySelector('#mm-add').onclick = add;
+    m.querySelector('#mm-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+    m.querySelector('#mm-cancel').onclick = close;
+    m.querySelector('#mm-save').onclick = (e) => withLoading(e.target, async () => {
+      try {
+        const r = await api(`/api/admin/products/${p.id}/modules`, { method: 'PUT', body: { modules: rows } });
+        close(); toast(['Módulos salvos', r.moved ? `${r.moved} aula(s) atualizada(s)` : '', r.cleared ? `${r.cleared} aula(s) ficaram sem módulo` : ''].filter(Boolean).join(' · '), { ms: 5000 }); reload();
+      } catch (er) { toast(er.message, { error: true }); }
+    });
+  } });
 }
 
 // ---------- capa personalizada dos vídeos ----------
@@ -905,7 +990,7 @@ async function lessonModal(lid, pid) {
     <form id="lf"><fieldset ${ro} style="display:contents">
     <section data-lsec="aula" class="form-grid">
       <div class="field"><label>Número</label><input class="input" type="number" name="number" value="${l.number}"></div>
-      <div class="field"><label>Módulo / bloco</label><input class="input" name="block" value="${esc(l.block)}" placeholder="Ex.: Fundamentos, Prática, Bônus"></div>
+      <div class="field"><label>Módulo</label>${moduleField(l.block)}</div>
       <div class="field full"><label>Título</label><input class="input" name="title" value="${esc(l.title)}"></div>
       <div class="field full"><label>Subtítulo</label><input class="input" name="subtitle" value="${esc(l.subtitle)}"></div>
       <div class="field full"><label>Objetivo d${fem ? 'a' : 'o'} ${esc(unit.toLowerCase())}</label><textarea class="input" name="objective" placeholder="Opcional. Aparece em destaque logo abaixo do vídeo.">${esc(l.objective)}</textarea></div>
@@ -939,6 +1024,7 @@ async function lessonModal(lid, pid) {
     const tab = (t) => { m.querySelectorAll('#ltabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); m.querySelectorAll('[data-lsec]').forEach((x) => (x.hidden = x.dataset.lsec !== t)); };
     m.querySelectorAll('#ltabs button').forEach((b) => (b.onclick = () => tab(b.dataset.t)));
     tab('aula');
+    bindModuleField(m, pid);
     const wnSync = () => { const md = m.querySelector('#wn-mode').value, t = m.querySelector('#wn-text'); t.disabled = md !== 'custom' || !!ro; if (md !== 'custom') t.value = ''; t.placeholder = md === 'product' ? (currentProductNote || 'O produto está sem frase padrão') : md === 'none' ? 'Nenhuma frase nesta aula' : 'Escreva a frase desta aula'; };
     m.querySelector('#wn-mode').addEventListener('change', () => { wnSync(); if (m.querySelector('#wn-mode').value === 'custom') m.querySelector('#wn-text').focus(); });
     wnSync();

@@ -126,6 +126,12 @@ Menu **WhatsApp**. Usa a mesma Evolution API do CRM (endereço + chave global, g
 - Antigo: `caminho.wtatech.com.br` em `LEGACY_HOSTS` continua no ar. Páginas redirecionam (301) para o endereço novo mantendo o caminho; `/api/*` (inclusive o webhook da Greenn) e `/health` respondem normalmente nos dois.
 - No Traefik, cada endereço tem o próprio router e certificado (`caminho` e `altis`).
 
+## 2h. Módulos, aulas sem vídeo e leitor de PDF
+
+- **Módulos:** cadastrados uma vez por produto (botão **Módulos** na página do produto: nome, ordem, remover). Na aula, o módulo é escolhido da lista (ou criado na hora em **+ Novo**). Renomear atualiza todas as aulas do módulo; remover deixa as aulas "sem módulo" (nada é apagado).
+- **Aula sem vídeo:** sem link de vídeo, o aluno não vê a tela do player — só o conteúdo e os materiais.
+- **PDF:** materiais em PDF enviados pelo painel abrem num leitor dentro da plataforma (pdf.js, Apache-2.0, em `public/shared/pdfjs`), com zoom e botão de baixar. Funciona no celular. PDFs de links externos continuam abrindo no navegador.
+
 ## 3. Como a liberação funciona
 
 - Pagamento aprovado na Greenn → webhook → cadastro do aluno + inscrição → e-mail com link para criar a senha (vale 72h; depois o aluno usa "Primeiro acesso / esqueci a senha").

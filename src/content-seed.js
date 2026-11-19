@@ -84,6 +84,7 @@ export function seedContent() {
         pid, d.number, d.block, d.title, d.subtitle, d.objective, d.video_duration, d.practice_duration,
         JSON.stringify(d.key_phrases), JSON.stringify(d.verses), d.activity_key, d.number - 1, d.release_message, d.tomorrow, t, t);
     }
+    db.run('UPDATE products SET modules = ? WHERE id = ?', JSON.stringify([...new Set(DAYS.map((d) => d.block).filter(Boolean))]), pid);
     db.run(`INSERT INTO products (slug, name, kind, tagline, description, release_mode, materials, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
       'guia-casa-em-ordem', 'Guia rápido: Casa em Ordem', 'bonus',
       'Cortes, teto de gastos variáveis, horário do dinheiro e fórmula da reserva.',

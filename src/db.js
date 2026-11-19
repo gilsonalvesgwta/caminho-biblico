@@ -391,6 +391,14 @@ const migrations = [
     PRIMARY KEY (provider, sale_id, provider_product_id)
   );
   `,
+  // 13: módulos cadastrados por produto (a aula só escolhe da lista). Já nasce com os módulos que as aulas usam hoje.
+  `
+  ALTER TABLE products ADD COLUMN modules TEXT NOT NULL DEFAULT '[]';
+  UPDATE products SET modules = COALESCE((SELECT json_group_array(b) FROM (
+    SELECT TRIM(block) b, MIN(number) m FROM lessons WHERE product_id = products.id AND TRIM(COALESCE(block, '')) <> '' GROUP BY TRIM(block) ORDER BY m
+  )), '[]');
+  UPDATE lessons SET block = TRIM(block) WHERE block IS NOT NULL AND block <> TRIM(block);
+  `,
 ];
 
 export function migrate() {

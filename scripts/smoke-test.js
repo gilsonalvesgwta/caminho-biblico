@@ -468,7 +468,22 @@ try {
   assert.equal((await viaHost('127.0.0.1', 'GET', '/login')).statusCode, 200, 'endereço novo abre normalmente');
   step('endereço antigo redireciona para o novo, sem afetar APIs e webhook');
 
-  for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/shared/player.js', '/shared/player.css', '/shared/pcard.js', '/shared/pcard.css', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
+  // módulos cadastrados: começam com os das aulas, renomear atualiza as aulas, remover deixa "sem módulo"
+  const prodM = (await call('admin', 'GET', '/api/admin/products')).json.rows.find((x) => x.slug === 'desafio-7-dias');
+  assert.deepEqual(prodM.modules, ['Coração', 'Princípios', 'Patrimônio']);
+  assert.equal((await call('admin', 'PUT', `/api/admin/products/${prodM.id}/modules`, { modules: [{ name: 'A', was: null }, { name: 'a' }] })).status, 400, 'nome repetido');
+  const mr = (await call('admin', 'PUT', `/api/admin/products/${prodM.id}/modules`, { modules: [{ name: 'Fundamentos', was: 'Coração' }, { name: 'Princípios', was: 'Princípios' }, { name: 'Bônus', was: null }] })).json;
+  assert.deepEqual(mr.modules, ['Fundamentos', 'Princípios', 'Bônus']); assert.equal(mr.moved, 3); assert.equal(mr.cleared, 1);
+  const lsM = (await call('admin', 'GET', `/api/admin/products/${prodM.id}/lessons`)).json.rows;
+  assert.equal(lsM.find((l) => l.number === 1).block, 'Fundamentos'); assert.equal(lsM.find((l) => l.number === 7).block, '');
+  // aula salva com módulo fora da lista: entra na lista
+  await call('admin', 'PUT', `/api/admin/lessons/${lsM.find((l) => l.number === 7).id}`, { block: '  Patrimônio  ' });
+  assert.deepEqual((await call('admin', 'GET', '/api/admin/products')).json.rows.find((x) => x.slug === 'desafio-7-dias').modules, ['Fundamentos', 'Princípios', 'Bônus', 'Patrimônio']);
+  assert.equal((await call('user', 'PUT', `/api/admin/products/${prodM.id}/modules`, { modules: [] })).status, 401);
+  step('módulos: cadastro, renomear em todas as aulas, remover e nunca ficar nome solto');
+
+  for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/shared/player.js', '/shared/player.css', '/shared/pcard.js', '/shared/pcard.css', '/shared/pdfviewer.js', '/shared/pdfjs/pdf.min.mjs', '/shared/pdfjs/pdf.worker.min.mjs', '/shared/pdfjs/standard_fonts/FoxitSerif.pfb', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
+  assert.match((await fetch(BASE + '/shared/pdfjs/pdf.min.mjs')).headers.get('content-type'), /javascript/, 'módulo do leitor de PDF com tipo certo');
   step('arquivos do app e do painel');
   console.log('\nTodos os testes passaram.');
   process.exitCode = 0;
