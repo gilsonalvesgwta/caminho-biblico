@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { issueUserToken } from './auth.js';
 import { sendEmail, accessEmail, releaseEmail, productAccessEmail } from './mailer.js';
 import { emit } from './events.js';
-import { queueWhatsApp } from './whatsapp.js';
+import { queueWhatsApp, lastProduct } from './whatsapp.js';
 import { compute } from '../public/shared/calc.js';
 
 export const normEmail = (e) => String(e || '').trim().toLowerCase();
@@ -59,19 +59,21 @@ export function revokeAccess(userId, productId, status = 'refunded') {
   return true;
 }
 
-export async function sendAccessEmail(user, { isNew = true, whatsapp = true } = {}) {
+export async function sendAccessEmail(user, { isNew = true, whatsapp = true, product = null } = {}) {
   const token = issueUserToken(user.id, 'access', 72);
   const link = `${config.appUrl}/acesso?t=${token}`;
+  // a mensagem fala do produto comprado (se não vier, usa o mais recente do aluno)
+  if (!product) product = lastProduct(user.id);
   // WhatsApp em paralelo, com o mesmo link (vai para a fila e não atrasa o e-mail)
-  const wa = whatsapp ? queueWhatsApp({ user, kind: 'access', link }) : null;
-  const { subject, html } = accessEmail({ name: user.name, link, isNew });
+  const wa = whatsapp ? queueWhatsApp({ user, kind: 'access', link, product }) : null;
+  const { subject, html } = accessEmail({ name: user.name, link, isNew, product });
   const r = await sendEmail({ to: user.email, subject, html, userId: user.id, kind: 'access', ref: String(Date.now()) });
   return { ...r, link, whatsapp: wa?.status || null };
 }
 
 /** Aluno que já tem senha ganhou um produto novo: avisa com o link direto do produto */
 export async function sendProductAccessEmail(user, product, { whatsapp = true } = {}) {
-  if (!user.password_hash) return sendAccessEmail(user, { isNew: true, whatsapp });
+  if (!user.password_hash) return sendAccessEmail(user, { isNew: true, whatsapp, product });
   const link = `${config.appUrl}/p/${product.slug}`;
   const wa = whatsapp ? queueWhatsApp({ user, kind: 'product', link, product }) : null;
   const { subject, html } = productAccessEmail({ name: user.name, product, link });

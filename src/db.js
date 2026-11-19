@@ -378,6 +378,12 @@ const migrations = [
   CREATE INDEX wa_messages_queue ON wa_messages(status, next_try_at);
   CREATE INDEX wa_messages_user ON wa_messages(user_id, kind, created_at);
   `,
+  // 11: mensagens padrão de WhatsApp falam do produto comprado, não do nome da plataforma
+  //     (só troca o trecho padrão; textos personalizados ficam como estão)
+  `
+  UPDATE settings SET value = REPLACE(value, 'o seu acesso à *[plataforma]* já está liberado', 'o seu acesso a *[produto]* já está liberado') WHERE key = 'wa_tpl_access';
+  UPDATE settings SET value = REPLACE(value, 'foi liberado na [plataforma].', 'já está liberado.') WHERE key = 'wa_tpl_product';
+  `,
 ];
 
 export function migrate() {
@@ -432,8 +438,8 @@ export const SETTING_DEFAULTS = {
   meta_api_version: 'v26.0', meta_sync_hours: '6', meta_sync_minutes: '', meta_history_days: '90', meta_sync_on_sale: 'true',
   meta_last_sync_at: '', meta_last_attempt_at: '', meta_dash_prefs: '',
   wa_enabled: 'false', wa_url: '', wa_key_enc: '', wa_key_hint: '', wa_instance: '', wa_country: '55',
-  wa_tpl_access: 'Olá, [nome]! 🎉\n\nSua compra foi confirmada e o seu acesso à *[plataforma]* já está liberado.\n\n👉 Crie a sua senha e entre por aqui:\n[link]\n\nSeu login é o e-mail: *[email]*\n\nO link é pessoal e vale por 72 horas. Se expirar, é só pedir um novo na tela de entrada.\n\nQualquer dúvida, responda esta mensagem.',
-  wa_tpl_product: 'Olá, [nome]! 🎉\n\nO seu acesso a *[produto]* foi liberado na [plataforma].\n\n👉 Entre por aqui:\n[link]\n\nUse o mesmo e-mail de sempre (*[email]*) e a sua senha.',
+  wa_tpl_access: 'Olá, [nome]! 🎉\n\nSua compra foi confirmada e o seu acesso a *[produto]* já está liberado.\n\n👉 Crie a sua senha e entre por aqui:\n[link]\n\nSeu login é o e-mail: *[email]*\n\nO link é pessoal e vale por 72 horas. Se expirar, é só pedir um novo na tela de entrada.\n\nQualquer dúvida, responda esta mensagem.',
+  wa_tpl_product: 'Olá, [nome]! 🎉\n\nO seu acesso a *[produto]* já está liberado.\n\n👉 Entre por aqui:\n[link]\n\nUse o mesmo e-mail de sempre (*[email]*) e a sua senha.',
 };
 const SECRET_KEYS = new Set(['greenn_webhook_token', 'resend_api_key', 'brevo_api_key', 'smtp_pass', 'outbound_webhook_secret']);
 

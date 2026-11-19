@@ -113,11 +113,18 @@ export async function waStatus() {
 // ---------- fila ----------
 const BACKOFF_MIN = [1, 5, 15, 60, 180];
 
+/** Produto mais recente do aluno (o principal, não o bônus) — usado quando a mensagem não diz qual é */
+export function lastProduct(userId) {
+  return db.get(`SELECT p.id, p.name, p.slug, p.short_name, p.kind FROM enrollments e JOIN products p ON p.id = e.product_id
+    WHERE e.user_id = ? AND e.status = 'active' ORDER BY (p.kind = 'bonus'), e.created_at DESC, e.id DESC LIMIT 1`, userId) || null;
+}
+
 /** Coloca na fila e tenta enviar na hora (sem esperar). Retorna o registro criado. */
 export function queueWhatsApp({ user, kind, link, product, text, phone }) {
   const c = cfg();
   if (!c.enabled && kind !== 'test') return null;
-  const vars = { nome: firstName(user?.name) || 'tudo bem', nome_completo: user?.name || '', email: user?.email || '', link: link || '', produto: product?.name || '', plataforma: c.s.brand_name || 'Área de membros' };
+  if (!product && user?.id) product = lastProduct(user.id);
+  const vars = { nome: firstName(user?.name) || 'tudo bem', nome_completo: user?.name || '', email: user?.email || '', link: link || '', produto: product?.name || c.s.brand_name || 'Área de membros', plataforma: c.s.brand_name || 'Área de membros' };
   const body = text || render(kind === 'product' ? c.s.wa_tpl_product : c.s.wa_tpl_access, vars);
   const number = normalizePhone(phone ?? user?.phone, c.country);
   const t = now();

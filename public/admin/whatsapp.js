@@ -4,7 +4,7 @@ import { api, esc, toast, withLoading, fmtDateTime, relTime, $, $$ } from '/shar
 const STATE = { open: ['Conectado', 'ok'], connecting: ['Aguardando leitura do QR code', 'warn'], close: ['Desconectado', 'err'], closed: ['Desconectado', 'err'], unknown: ['Sem informação', ''] };
 const KIND = { access: 'Dados de acesso', product: 'Novo produto', test: 'Teste' };
 const MSG = { sent: ['Enviada', 'ok'], queued: ['Na fila', 'gold'], failed: ['Falhou', 'err'], skipped: ['Sem telefone', 'warn'] };
-const VARS = [['[nome]', 'primeiro nome'], ['[nome_completo]', 'nome completo'], ['[email]', 'e-mail de login'], ['[link]', 'link de acesso'], ['[produto]', 'produto'], ['[plataforma]', 'nome da plataforma']];
+const VARS = [['[nome]', 'primeiro nome'], ['[nome_completo]', 'nome completo'], ['[email]', 'e-mail de login'], ['[link]', 'link de acesso'], ['[produto]', 'curso/desafio comprado'], ['[plataforma]', 'nome da plataforma']];
 const sample = { '[nome]': 'Maria', '[nome_completo]': 'Maria Souza', '[email]': 'maria@email.com', '[link]': 'https://altis.wtatech.com.br/acesso?t=…', '[produto]': 'Riqueza a Dois', '[plataforma]': 'Altis' };
 /** Prévia no estilo do WhatsApp: *negrito*, _itálico_, quebras de linha */
 const preview = (t) => esc(Object.entries(sample).reduce((s, [k, v]) => s.split(k).join(v), t || '')).replace(/\*([^*\n]+)\*/g, '<b>$1</b>').replace(/_([^_\n]+)_/g, '<i>$1</i>').replace(/\n/g, '<br>');

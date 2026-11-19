@@ -154,16 +154,17 @@ async function sendSmtp(s, from, to, subject, html, text) {
 }
 
 // ---------- modelos ----------
-export function accessEmail({ name, link, isNew }) {
+export function accessEmail({ name, link, isNew, product }) {
   const s = getSettings();
   const first = (name || '').split(' ')[0] || 'olá';
+  const title = product?.name || s.brand_name;
   return {
-    subject: isNew ? `Seu acesso chegou: ${s.brand_name}` : `Seu link de acesso: ${s.brand_name}`,
+    subject: isNew ? `Seu acesso chegou: ${title}` : `Seu link de acesso: ${title}`,
     html: emailLayout({
       preheader: 'Crie sua senha e comece hoje pelo Dia 1.',
       heading: isNew ? `${esc(first)}, o seu desafio começa hoje.` : `${esc(first)}, aqui está o seu acesso.`,
       paragraphs: [
-        isNew ? 'Que alegria ter você aqui. A sua inscrição foi confirmada e o Dia 1 já está liberado.' : 'Use o botão abaixo para entrar e definir a sua senha.',
+        isNew ? (product ? `Que alegria ter você aqui. A sua inscrição em <b>${esc(product.name)}</b> foi confirmada e o primeiro conteúdo já está liberado.` : 'Que alegria ter você aqui. A sua inscrição foi confirmada e o Dia 1 já está liberado.') : 'Use o botão abaixo para entrar e definir a sua senha.',
         'Clique no botão, crie a sua senha e salve o app na tela inicial do seu celular para acessar com um toque.',
       ],
       cta: { label: 'Acessar e criar minha senha', url: link },

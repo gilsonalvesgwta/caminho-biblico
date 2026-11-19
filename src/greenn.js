@@ -71,7 +71,8 @@ export async function processGreennEvent(p) {
     let mail = '';
     const recentMail = db.get("SELECT 1 FROM notifications WHERE user_id = ? AND kind = 'access' AND created_at > ?", user.id, new Date(Date.now() - 15 * 60e3).toISOString());
     if (activated.length && (!user.password_hash || created) && !recentMail) {
-      const r = await sendAccessEmail(user, { isNew: true });
+      const main = activatedProducts.find((x) => x.kind !== 'bonus') || activatedProducts[0];
+      const r = await sendAccessEmail(user, { isNew: true, product: main });
       mail = (r.status === 'failed' ? ` E-mail de acesso falhou: ${r.error}` : ' E-mail de acesso enviado.') + waNote(r.whatsapp);
     } else if (activatedProducts.length && user.password_hash && !created) {
       // já é aluno: avisa do produto novo (o principal, se vierem vários na mesma compra)

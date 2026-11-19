@@ -413,6 +413,11 @@ try {
   assert.equal(wj.status, 'sent'); assert.equal(wj.kind, 'access'); assert.equal(wj.phone, '5521988887777');
   const txt = fakeEvo.sent.find((x) => x.number === '5521988887777').text;
   assert.match(txt, /Olá, Joana!/); assert.match(txt, /\/acesso\?t=[A-Za-z0-9_-]+/); assert.match(txt, /joana@teste\.com/);
+  // a mensagem padrão fala do produto comprado, não do nome da plataforma
+  const waBrand = (await call('admin', 'GET', '/api/admin/settings')).json.settings?.brand_name;
+  const waProd = txt.match(/acesso a \*([^*]+)\* já está liberado/);
+  assert.ok(waProd, 'mensagem cita o produto comprado'); assert.notEqual(waProd[1], waBrand); assert.ok(!/\[(produto|plataforma)\]/.test(txt));
+  assert.match(waProd[1], /Desafio de 7 Dias/, 'nome completo do produto comprado');
   // a Greenn reenvia o mesmo aviso: não duplica
   await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 12345, name: 'Desafio' }, sale: { id: 9800, amount: 27, method: 'PIX' }, client: { name: 'Joana Compradora', email: 'joana@teste.com', cellphone: '+55 (21) 98888-7777' } });
   await new Promise((r) => setTimeout(r, 300));

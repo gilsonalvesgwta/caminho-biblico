@@ -236,7 +236,7 @@ export function registerAdminRoutes(r) {
     const { user, created } = upsertUser({ email, name: String(req.body.name || '').trim(), phone: req.body.phone });
     for (const pid of req.body.product_ids || []) grantAccess(user.id, Number(pid), { source: 'manual' });
     let link = null;
-    if (req.body.send_email !== false) link = (await sendAccessEmail(user, { isNew: true })).link;
+    if (req.body.send_email !== false) link = (await sendAccessEmail(user, { isNew: true })).link; // produto: o liberado agora (o mais recente)
     audit(req, 'student.create', user.id, { email, products: req.body.product_ids });
     return { ok: true, id: user.id, created, link };
   });
