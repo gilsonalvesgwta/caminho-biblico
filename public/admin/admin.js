@@ -482,25 +482,71 @@ async function pageStudent(id) {
 
 // ---------- vendas ----------
 async function pageSales() {
-  const st = { q: '', status: '', page: 1, tab: 'sales' };
-  $('#main').innerHTML = head('Vendas', 'Tudo o que a Greenn enviou: vendas, reembolsos e carrinhos abandonados.') + `<div class="tabs"><button class="on" data-t="sales">Vendas</button><button data-t="abandoned">Carrinhos abandonados</button></div><div class="panel" id="pnl"></div>`;
+  const st = { q: '', status: '', page: 1, tab: 'sales', test: '', sel: new Set() };
+  $('#main').innerHTML = head('Vendas', 'Tudo o que a Greenn enviou: vendas, reembolsos e carrinhos abandonados.', can('owner') ? '<button class="btn btn-soft" id="zero-tests">Zerar vendas de teste</button>' : '') + `<div class="tabs"><button class="on" data-t="sales">Vendas</button><button data-t="abandoned">Carrinhos abandonados</button></div><div class="panel" id="pnl"></div>`;
   const load = async () => {
     if (st.tab === 'abandoned') {
       const d = await api(`/api/admin/abandoned?page=${st.page}`);
       $('#pnl').innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Contato</th><th>Telefone</th><th>Produto Greenn</th><th>Situação</th><th>Quando</th></tr></thead><tbody>${d.rows.map((l) => `<tr><td>${who(l.name, l.email)}</td><td>${l.phone ? `<a href="https://wa.me/${esc(l.phone.replace(/\D/g, ''))}" target="_blank">${esc(l.phone)}</a>` : '—'}</td><td>${esc(l.provider_product_id)}</td><td>${l.converted ? '<span class="badge ok">Comprou depois</span>' : '<span class="badge warn">Não comprou</span>'}</td><td>${fmtDateTime(l.created_at)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhum carrinho abandonado. Ative o evento “Checkout abandonado” no webhook da Greenn.</td></tr>'}</tbody></table></div>${pager(d, (p) => { st.page = p; load(); })}`;
       return;
     }
-    const d = await api(`/api/admin/sales?${qs({ q: st.q, status: st.status, page: st.page })}`);
-    $('#pnl').innerHTML = `<div class="toolbar"><input class="input search" id="q" placeholder="E-mail, nome, ID da venda ou produto" value="${esc(st.q)}"><select class="input" id="s"><option value="">Todos os status</option>${['paid', 'waiting_payment', 'refused', 'refunded', 'chargedback'].map((s) => `<option value="${s}" ${st.status === s ? 'selected' : ''}>${STATUS[s][0]}</option>`).join('')}</select><span class="faint" style="margin-left:auto">Total pago no filtro: <b>${brl(d.paidValue)}</b></span></div>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Produto</th><th>Status</th><th>Pagamento</th><th>Origem</th><th class="r">Valor</th><th>Data</th></tr></thead><tbody>
-      ${d.rows.map((s) => { const wa = (s.phone || '').replace(/\D/g, ''); return `<tr class="${s.user_id ? 'click' : ''}" data-user="${s.user_id || ''}"><td>${who(s.name, s.email, wa ? ` · <a href="https://wa.me/${wa}" target="_blank" data-stop>${esc(s.phone)}</a>` : '')}</td><td>${esc(s.product_name || '')}<br><small class="faint">#${esc(s.provider_product_id)} · venda ${esc(s.sale_id)}</small></td><td>${badge(s.status)}</td><td>${esc(s.method || '—')}${s.installments > 1 ? ` · ${s.installments}x` : ''}${s.coupon ? `<br><small class="faint">cupom ${esc(s.coupon)}</small>` : ''}</td><td><small>${esc([s.utm_source, s.utm_campaign].filter(Boolean).join(' / ') || '—')}</small></td><td class="r">${brl(s.amount)}</td><td>${fmtDateTime(s.created_at)}</td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">Nenhuma venda encontrada.</td></tr>'}
+    const d = await api(`/api/admin/sales?${qs({ q: st.q, status: st.status, page: st.page, test: st.test })}`);
+    const owner = can('owner');
+    $('#pnl').innerHTML = `<div class="toolbar"><input class="input search" id="q" placeholder="E-mail, nome, ID da venda ou produto" value="${esc(st.q)}"><select class="input" id="s"><option value="">Todos os status</option>${['paid', 'waiting_payment', 'refused', 'refunded', 'chargedback'].map((s) => `<option value="${s}" ${st.status === s ? 'selected' : ''}>${STATUS[s][0]}</option>`).join('')}</select>
+      <select class="input" id="tf"><option value="">Com vendas de teste</option><option value="hide" ${st.test === 'hide' ? 'selected' : ''}>Sem vendas de teste</option><option value="only" ${st.test === 'only' ? 'selected' : ''}>Só vendas de teste${d.tests ? ` (${d.tests})` : ''}</option></select>
+      <span class="faint" style="margin-left:auto">Total pago no filtro (sem testes): <b>${brl(d.paidValue)}</b></span></div>
+      ${owner ? `<div class="bulk-bar" id="bulk" ${st.sel.size ? '' : 'hidden'}><b id="bulk-n">${st.sel.size} selecionada(s)</b><button class="btn btn-soft btn-sm" data-mark="1">Marcar como teste</button><button class="btn btn-ghost btn-sm" data-mark="0">Desmarcar teste</button><button class="btn btn-ghost btn-sm" id="bulk-clear">Limpar seleção</button></div>` : ''}
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>${owner ? '<th style="width:34px"><input type="checkbox" id="sel-all" title="Selecionar a página"></th>' : ''}<th>Cliente</th><th>Produto</th><th>Status</th><th>Pagamento</th><th>Origem</th><th class="r">Valor</th><th>Data</th></tr></thead><tbody>
+      ${d.rows.map((s) => { const wa = (s.phone || '').replace(/\D/g, ''); return `<tr class="${s.user_id ? 'click' : ''} ${s.is_test ? 'is-test' : ''}" data-user="${s.user_id || ''}">${owner ? `<td data-stop><input type="checkbox" data-sel="${s.id}" ${st.sel.has(s.id) ? 'checked' : ''}></td>` : ''}<td>${s.is_test ? '<span class="badge warn" style="margin-bottom:4px">Teste</span><br>' : ''}${who(s.name, s.email, wa ? ` · <a href="https://wa.me/${wa}" target="_blank" data-stop>${esc(s.phone)}</a>` : '')}</td><td>${esc(s.product_name || '')}<br><small class="faint">#${esc(s.provider_product_id)} · venda ${esc(s.sale_id)}</small></td><td>${badge(s.status)}</td><td>${esc(s.method || '—')}${s.installments > 1 ? ` · ${s.installments}x` : ''}${s.coupon ? `<br><small class="faint">cupom ${esc(s.coupon)}</small>` : ''}</td><td><small>${esc([s.utm_source, s.utm_campaign].filter(Boolean).join(' / ') || '—')}</small></td><td class="r">${brl(s.amount)}</td><td>${fmtDateTime(s.created_at)}</td></tr>`; }).join('') || `<tr><td colspan="${owner ? 8 : 7}" class="empty">Nenhuma venda encontrada.</td></tr>`}
       </tbody></table></div>${pager(d, (p) => { st.page = p; load(); })}`;
+    $('#tf').onchange = () => { st.test = $('#tf').value; st.page = 1; load(); };
+    const syncBulk = () => { const b = $('#bulk'); if (!b) return; b.hidden = !st.sel.size; $('#bulk-n').textContent = `${st.sel.size} selecionada(s)`; };
+    $$('[data-sel]').forEach((c) => c.addEventListener('change', () => { const id = Number(c.dataset.sel); c.checked ? st.sel.add(id) : st.sel.delete(id); syncBulk(); }));
+    $('#sel-all')?.addEventListener('change', (e) => { $$('[data-sel]').forEach((c) => { c.checked = e.target.checked; const id = Number(c.dataset.sel); e.target.checked ? st.sel.add(id) : st.sel.delete(id); }); syncBulk(); });
+    $('#bulk-clear')?.addEventListener('click', () => { st.sel.clear(); load(); });
+    $$('[data-mark]').forEach((b) => (b.onclick = async () => {
+      const flag = b.dataset.mark === '1';
+      const r = await api('/api/admin/sales/mark-test', { method: 'POST', body: { ids: [...st.sel], is_test: flag } });
+      toast(flag ? `${r.count} venda(s) marcada(s) como teste. Saíram do Financeiro, da Visão geral e dos Anúncios.` : `${r.count} venda(s) voltaram a contar nos números.`, { ms: 5000 });
+      st.sel.clear(); load();
+    }));
     $('#q').oninput = debounce(() => { st.q = $('#q').value; st.page = 1; load().then(() => { const q = $('#q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }); }, 400);
     $('#s').onchange = () => { st.status = $('#s').value; st.page = 1; load(); };
     $$('tr[data-user]').forEach((tr) => tr.dataset.user && (tr.onclick = (e) => { if (!e.target.closest('[data-stop]')) go(`/alunos/${tr.dataset.user}`); }));
   };
   $$('[data-t]').forEach((b) => (b.onclick = () => { $$('[data-t]').forEach((x) => x.classList.toggle('on', x === b)); st.tab = b.dataset.t; st.page = 1; load(); }));
+  $('#zero-tests')?.addEventListener('click', () => zeroTestsModal(load));
   load();
+}
+
+/** Zerar os números: marca como teste todas as vendas até uma data (inclusive). Nada é apagado e dá para desfazer. */
+function zeroTestsModal(reload) {
+  const today = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  modal({ title: 'Zerar vendas de teste', eyebrow: 'Vendas', body: `
+    <p class="muted" style="margin-top:0">Use quando as campanhas reais começarem: todas as vendas registradas <b>até a data escolhida</b> passam a ser tratadas como teste.</p>
+    <ul class="zt-list"><li><b>Saem dos números:</b> Visão geral, Financeiro (bruto, líquido, reembolsos, ROAS) e Anúncios.</li><li><b>Nada é apagado:</b> continuam na lista com a etiqueta "Teste", e dá para desfazer.</li><li><b>O acesso dos alunos não muda.</b> Para tirar o acesso de alguém, use a ficha do aluno.</li></ul>
+    <div class="form-grid"><div class="field"><label>Vendas registradas até (inclusive)</label><input class="input" type="date" id="zt-date" value="${today}" max="${today}"></div>
+    <div class="field"><label>&nbsp;</label><div class="zt-prev" id="zt-prev">Calculando…</div></div></div>
+    <div class="modal-actions"><button class="btn btn-primary" id="zt-go" disabled>Marcar como teste</button><button class="btn btn-ghost" id="zt-undo">Desfazer todas as marcações</button></div>`,
+  onMount: (m, close) => {
+    const prev = async () => {
+      const d = m.querySelector('#zt-date').value; if (!d) return;
+      const r = await api(`/api/admin/sales/test-preview?before=${d}`);
+      m.querySelector('#zt-prev').innerHTML = r.c ? `<b>${r.c}</b> venda(s), sendo <b>${r.paid || 0}</b> paga(s) · ${brl(r.v)}` : 'Nenhuma venda até essa data.';
+      m.querySelector('#zt-go').disabled = !r.c;
+      m.querySelector('#zt-go').dataset.n = r.c;
+    };
+    m.querySelector('#zt-date').addEventListener('change', prev); prev();
+    m.querySelector('#zt-go').onclick = async (e) => {
+      const d = m.querySelector('#zt-date').value;
+      if (!confirm(`Marcar ${e.target.dataset.n} venda(s) até ${d.split('-').reverse().join('/')} como teste?`)) return;
+      await withLoading(e.target, async () => { const r = await api('/api/admin/sales/mark-test', { method: 'POST', body: { before: d } }); close(); toast(`${r.count} venda(s) marcada(s) como teste. Os números agora começam do zero.`, { ms: 6000 }); reload(); });
+    };
+    m.querySelector('#zt-undo').onclick = async () => {
+      if (!confirm('Fazer todas as vendas marcadas como teste voltarem a contar nos números?')) return;
+      const r = await api('/api/admin/sales/mark-test', { method: 'POST', body: { all_tests: true, is_test: false } }); close(); toast(`${r.count} venda(s) voltaram a contar.`); reload();
+    };
+  } });
 }
 
 // ---------- leads ----------

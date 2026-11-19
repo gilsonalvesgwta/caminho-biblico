@@ -88,6 +88,7 @@ function rangeOf(f) {
 const dmy = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 const inHours = (iso) => { if (!iso) return ''; const ms = Date.parse(iso) - Date.now(); if (ms <= 60e3) return 'em instantes'; const tm = Math.round(ms / 60e3), h = Math.floor(tm / 60), m = tm % 60; return h ? `em ${h} h${m ? ` ${m} min` : ''}` : `em ${m} min`; };
 const STATUS = { ACTIVE: ['Ativo', 'on'], PAUSED: ['Pausado', 'off'], CAMPAIGN_PAUSED: ['Campanha pausada', 'off'], ADSET_PAUSED: ['Conjunto pausado', 'off'], DELETED: ['Excluído', 'gone'], ARCHIVED: ['Arquivado', 'gone'], IN_PROCESS: ['Em análise', 'wait'], WITH_ISSUES: ['Com problemas', 'warn'], DISAPPROVED: ['Reprovado', 'warn'], PENDING_REVIEW: ['Em análise', 'wait'] };
+const STATUS_OPTS = [['', 'Todos'], ['active', 'Só ativos'], ['paused', 'Pausados'], ['deleted', 'Excluídos e arquivados'], ['inactive', 'Pausados e excluídos']];
 const statusPill = (s) => { const [l, c] = STATUS[s] || [s ? s.toLowerCase() : '—', 'gone']; return `<span class="ad-st ${c}"><i></i>${esc(l)}</span>`; };
 
 // ---------- estado ----------
@@ -116,13 +117,14 @@ export async function pageAds({ head, can, BASE, products }) {
 function shell(body) {
   const st = S.status;
   const chip = st.syncing ? '<span class="ad-sync busy"><i></i>Sincronizando com a Meta…</span>'
-    : st.connected ? `<span class="ad-sync ${S.status.log?.[0]?.status === 'error' ? 'err' : ''}" title="${st.lastSyncAt ? `Última sincronização: ${fmtDateTime(st.lastSyncAt)}` : ''}"><i></i>${st.lastSyncAt ? `Atualizado ${relTime(st.lastSyncAt)}` : 'Aguardando a primeira sincronização'}${st.nextSyncAt ? ` · próxima ${inHours(st.nextSyncAt)}` : ''}</span>`
+    : st.connected ? `<span class="ad-sync ${S.status.log?.[0]?.status === 'error' ? 'err' : ''}" title="${st.lastSyncAt ? `Última sincronização: ${fmtDateTime(st.lastSyncAt)}` : ''}"><i></i>${st.lastSyncAt ? `Atualizado ${relTime(st.lastSyncAt)}` : 'Aguardando a primeira sincronização'}${st.nextSyncAt ? ` · próxima ${inHours(st.nextSyncAt)}` : ''}</span><button class="ad-int" id="ad-int" title="Mudar o intervalo de atualização">a cada ${esc(st.syncLabel || '6 h')} ✎</button>`
       : '<span class="ad-sync err"><i></i>Meta desconectada</span>';
   $('#main').innerHTML = S.ctx.head('Anúncios', 'Meta Ads com as vendas reais da plataforma, atribuídas pelos UTMs · horário de Brasília',
     `${chip}${st.connected ? `<button class="btn btn-soft btn-sm" id="ad-sync" ${st.syncing ? 'disabled' : ''}>Sincronizar agora</button>` : ''}`) + `
     <div class="tabs ad-tabs"><button data-tab="painel" class="${S.tab === 'painel' ? 'on' : ''}">Painel</button><button data-tab="conexao" class="${S.tab === 'conexao' ? 'on' : ''}">Conexão e configurações</button></div>${body}`;
   $$('[data-tab]').forEach((b) => (b.onclick = () => { S.tab = b.dataset.tab; S.tab === 'conexao' ? renderConnection() : renderDash(); }));
   $('#ad-sync')?.addEventListener('click', () => startSync(false));
+  $('#ad-int')?.addEventListener('click', () => { S.tab = 'conexao'; renderConnection().then(() => { const b = $('#sync-box'); b?.scrollIntoView({ behavior: 'smooth', block: 'center' }); b?.classList.add('flash'); setTimeout(() => b?.classList.remove('flash'), 1600); }); });
   if (st.syncing) pollSync();
 }
 
@@ -156,9 +158,10 @@ async function renderDash() {
   const v = curView();
   if (!S.level) S.level = v.level || 'campaigns';
   const o = r.options;
-  const camps = o.campaigns.filter((c) => !S.f.account || c.account_id === S.f.account);
-  const sets = o.adsets.filter((x) => (!S.f.campaign || x.campaign_id === S.f.campaign) && (!S.f.account || camps.some((c) => c.id === x.campaign_id)));
-  const ads = o.ads.filter((x) => (!S.f.adset || x.adset_id === S.f.adset) && (!S.f.campaign || x.campaign_id === S.f.campaign) && (!S.f.account || camps.some((c) => c.id === x.campaign_id)));
+  const onlyActive = S.f.status === 'active';
+  const camps = o.campaigns.filter((c) => (!S.f.account || c.account_id === S.f.account) && (!onlyActive || c.status === 'ACTIVE'));
+  const sets = o.adsets.filter((x) => (!onlyActive || x.status === 'ACTIVE') && (!S.f.campaign || x.campaign_id === S.f.campaign) && (!S.f.account || camps.some((c) => c.id === x.campaign_id)));
+  const ads = o.ads.filter((x) => (!onlyActive || x.status === 'ACTIVE') && (!S.f.adset || x.adset_id === S.f.adset) && (!S.f.campaign || x.campaign_id === S.f.campaign) && (!S.f.account || camps.some((c) => c.id === x.campaign_id)));
   const sel = (id, label, all, items, val) => `<label class="ad-sel"><span>${label}</span><select class="input" id="${id}"><option value="">${all}</option>${items.map((x) => `<option value="${esc(x.id)}" ${x.id === val ? 'selected' : ''}>${esc(x.name)}${x.status && x.status !== 'ACTIVE' ? ' · inativo' : ''}</option>`).join('')}</select></label>`;
   const noData = !r.sync.hasData;
   const body = `
@@ -170,7 +173,7 @@ async function renderDash() {
         ${sel('f-campaign', 'Campanha', 'Todas as campanhas', camps, S.f.campaign)}
         ${sel('f-adset', 'Conjunto', 'Todos os conjuntos', sets, S.f.adset)}
         ${sel('f-ad', 'Anúncio', 'Todos os anúncios', ads, S.f.ad)}
-        <label class="ad-sel ad-sel-s"><span>Status</span><select class="input" id="f-status"><option value="">Todos</option><option value="active" ${S.f.status === 'active' ? 'selected' : ''}>Ativos</option><option value="paused" ${S.f.status === 'paused' ? 'selected' : ''}>Inativos</option></select></label>
+        <label class="ad-sel ad-sel-s"><span>Status</span><select class="input" id="f-status">${STATUS_OPTS.map(([v, l]) => `<option value="${v}" ${S.f.status === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       </div>
       <div class="ad-factions">
         <span class="faint">${dmy(r.from)}${r.from !== r.to ? ` a ${dmy(r.to)}` : ''} · comparado a ${dmy(r.prevFrom)}${r.prevFrom !== r.prevTo ? `–${dmy(r.prevTo)}` : ''}</span>
@@ -192,7 +195,7 @@ async function renderDash() {
     <div class="panel ad-table-p">
       <div class="panel-h ad-th">
         <div class="ad-levels">${[['campaigns', 'Campanhas'], ['adsets', 'Conjuntos'], ['ads', 'Anúncios']].map(([k, l]) => `<button data-level="${k}" class="${S.level === k ? 'on' : ''}">${l} <span>${r.rows[k].length}</span></button>`).join('')}</div>
-        <div class="actions"><input class="input ad-search" id="ad-q" placeholder="Buscar por nome" value="${esc(S.q)}"><button class="btn btn-ghost btn-sm" id="ad-csv">Exportar CSV</button></div>
+        <div class="actions"><label class="toggle ad-only" title="Esconde pausados, excluídos e arquivados da tabela"><input type="checkbox" id="only-active" ${onlyActive ? 'checked' : ''}><i></i><span>Só ativos</span></label><input class="input ad-search" id="ad-q" placeholder="Buscar por nome" value="${esc(S.q)}"><button class="btn btn-ghost btn-sm" id="ad-csv">Exportar CSV</button></div>
       </div>
       <div class="tbl-wrap" id="ad-tbl"></div>
     </div>`;
@@ -207,8 +210,14 @@ async function renderDash() {
   $('#f-adset').onchange = (e) => { S.f.adset = e.target.value; S.f.ad = ''; if (S.f.adset) S.level = 'ads'; renderDash(); };
   $('#f-ad').onchange = (e) => { S.f.ad = e.target.value; if (S.f.ad) S.level = 'ads'; renderDash(); };
   $('#f-status').onchange = (e) => { S.f.status = e.target.value; renderDash(); };
+  $('#only-active').onchange = (e) => { S.f.status = e.target.checked ? 'active' : ''; renderDash(); };
   $('#f-clear')?.addEventListener('click', () => { S.f.account = S.f.campaign = S.f.adset = S.f.ad = ''; S.level = curView().level; renderDash(); });
-  $('#f-default').onclick = async () => { S.prefs.defaults = { preset: S.f.preset, account: S.f.account, status: S.f.status, view: S.viewId, from: S.f.from, to: S.f.to }; await savePrefs(); toast('Filtros salvos como padrão'); };
+  $('#f-default').onclick = async () => {
+    S.prefs.defaults = { preset: S.f.preset, account: S.f.account, status: S.f.status, view: S.viewId, from: S.f.from, to: S.f.to };
+    await savePrefs();
+    const parts = [PRESETS.find(([k]) => k === S.f.preset)?.[1], STATUS_OPTS.find(([v]) => v === S.f.status)?.[1].toLowerCase(), curView().name];
+    toast(`Padrão salvo: ${parts.filter(Boolean).join(' · ')}. O painel sempre abre assim.`, { ms: 5000 });
+  };
   $$('[data-view]').forEach((b) => (b.onclick = () => { S.viewId = b.dataset.view; S.level = curView().level || S.level; S.sort = { key: curView().columns[0] || 'spend', dir: -1 }; renderDash(); }));
   $('#v-new').onclick = () => editView(true);
   $('#v-edit').onclick = () => editView(false);
@@ -258,8 +267,10 @@ function renderTable() {
   };
   $('#ad-tbl').innerHTML = rows.length ? `<table class="tbl ad-tbl"><thead><tr>${th('name', lvl === 'campaigns' ? 'Campanha' : lvl === 'adsets' ? 'Conjunto' : 'Anúncio')}${cols.map((c) => th(c, esc(KPIS[c].l))).join('')}</tr></thead>
     <tbody>${rows.map((x) => `<tr>${nameCell(x)}${cols.map((c) => `<td class="r ${(c === 'profit' || c === 'roi') && x[c] < 0 ? 'neg' : ''} ${c === 'roas' ? roasClass(x.roas) : ''}">${fmt(c, x[c])}</td>`).join('')}</tr>`).join('')}</tbody>
-    <tfoot><tr><td><b>Total</b> <small class="faint">${rows.length} ${lvl === 'campaigns' ? 'campanha(s)' : lvl === 'adsets' ? 'conjunto(s)' : 'anúncio(s)'}</small></td>${cols.map((c) => `<td class="r"><b>${fmt(c, T[c])}</b></td>`).join('')}</tr></tfoot></table>`
+    <tfoot><tr><td><b>Total</b>${S.f.status ? ' <small class="faint" title="Os cards de cima somam tudo o que foi gasto no período, inclusive anúncios já pausados ou excluídos">dos itens listados ·</small>' : ''} <small class="faint">${rows.length} ${lvl === 'campaigns' ? 'campanha(s)' : lvl === 'adsets' ? 'conjunto(s)' : 'anúncio(s)'}</small></td>${cols.map((c) => `<td class="r"><b>${fmt(c, T[c])}</b></td>`).join('')}</tr></tfoot></table>`
     : `<div class="empty" style="padding:28px">${S.q ? 'Nada encontrado com essa busca.' : 'Sem dados para esses filtros e período.'}</div>`;
+  // miniatura que a Meta não entregou (link expirado): fica o quadro neutro, sem ícone quebrado
+  $$('.ad-thumb img').forEach((i) => { const drop = () => i.remove(); if (i.complete && !i.naturalWidth) drop(); else i.addEventListener('error', drop); });
   $$('[data-sort]').forEach((t) => (t.onclick = () => { const k = t.dataset.sort; S.sort = { key: k, dir: S.sort.key === k ? -S.sort.dir : k === 'name' ? 1 : -1 }; renderTable(); }));
   $$('[data-drill]').forEach((b) => (b.onclick = () => {
     const id = b.dataset.drill;
@@ -357,6 +368,38 @@ function adsChart(el, pts) {
   });
 }
 
+// ---------- intervalo de sincronização ----------
+const INTERVALS = [[15, '15 min'], [30, '30 min'], [60, '1 h'], [120, '2 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h']];
+const labelOf = (m) => (m < 60 ? `${m} min` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`);
+function bindInterval(st) {
+  const box = $('#sync-box'); if (!box) return;
+  let chosen = st.syncMinutes;
+  const custom = () => Math.round(Number($('#si-val').value || 0) * Number($('#si-unit').value));
+  const refresh = () => {
+    const isCustom = box.querySelector('[data-int="custom"]').classList.contains('on');
+    if (isCustom) chosen = custom();
+    const valid = chosen >= 15 && chosen <= 1440;
+    const per = valid ? Math.round(1440 / chosen) : 0;
+    $('#si-hint').innerHTML = !valid ? '<span class="neg">Escolha entre 15 minutos e 24 horas.</span>'
+      : `${chosen === st.syncMinutes ? 'Intervalo atual.' : `Novo intervalo: <b>${labelOf(chosen)}</b>.`} Cerca de ${per} ${per > 1 ? 'sincronizações' : 'sincronização'} por dia.${chosen < 60 ? ' Intervalos curtos deixam o painel mais atual; a Meta pode limitar consultas em contas com muitos anúncios, e o sistema tenta de novo sozinho.' : ''}`;
+    $('#si-save').disabled = !valid || chosen === st.syncMinutes;
+  };
+  box.querySelectorAll('[data-int]').forEach((b) => (b.onclick = () => {
+    box.querySelectorAll('[data-int]').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); });
+    $('#si-custom').hidden = b.dataset.int !== 'custom';
+    if (b.dataset.int !== 'custom') chosen = Number(b.dataset.int); else $('#si-val').focus();
+    refresh();
+  }));
+  $('#si-val').addEventListener('input', refresh); $('#si-unit').addEventListener('change', refresh);
+  const save = async (m, msg) => {
+    try { await api('/api/admin/meta/settings', { method: 'PUT', body: { sync_minutes: m } }); toast(msg, { ms: 4500 }); S.status = await api('/api/admin/meta/status'); renderConnection(); }
+    catch (e) { toast(e.message, { error: true }); }
+  };
+  $('#si-save').onclick = () => save(chosen, `Salvo: a Meta passa a sincronizar a cada ${labelOf(chosen)}. A próxima é contada a partir da última sincronização.`);
+  $('#si-reset')?.addEventListener('click', () => save(st.defaultSyncMinutes, `Padrão restaurado: a cada ${labelOf(st.defaultSyncMinutes)}.`));
+  refresh();
+}
+
 // ---------- conexão ----------
 async function renderConnection() {
   const st = S.status = await api('/api/admin/meta/status');
@@ -375,7 +418,7 @@ async function renderConnection() {
     <div class="panel c5"><div class="panel-h"><h3>O que você ganha</h3></div><div class="panel-b ad-benefits">
       <p><b>Tudo em um painel:</b> investimento, impressões, cliques, CTR, CPC, CPM, connect rate, checkout, hook e hold rate por campanha, conjunto e anúncio.</p>
       <p><b>Vendas reais, não só o pixel:</b> cada venda aprovada na Greenn é ligada ao anúncio pelo UTM, com ROAS, ROI, CPA e lucro de verdade.</p>
-      <p><b>Atualização automática</b> a cada ${st.syncHours} horas, sem exportar planilha.</p>
+      <p><b>Atualização automática</b> a cada ${esc(st.syncLabel)} (você escolhe o intervalo), sem exportar planilha.</p>
       <p><b>O Financeiro também usa esses gastos:</b> ROAS e lucro da plataforma sem lançamento manual.</p></div></div></div>`
     : `
     <div class="cols">
@@ -384,10 +427,14 @@ async function renderConnection() {
         <div class="ad-cbtns"><button class="btn btn-primary btn-sm" id="mc-sync" ${st.syncing ? 'disabled' : ''}>Sincronizar agora</button><button class="btn btn-soft btn-sm" id="mc-full" ${st.syncing ? 'disabled' : ''}>Recarregar histórico completo</button>${owner ? '<button class="btn btn-ghost btn-sm" id="mc-swap">Trocar token</button><button class="btn btn-danger btn-sm" id="mc-off">Desconectar</button>' : ''}</div>
         <div id="mc-swap-box" hidden style="margin-top:16px">${form}</div>
       </div></div>
-      <div class="panel c5"><div class="panel-h"><h3>Atualização</h3></div><div class="panel-b form-grid">
-        <div class="field"><label>Sincronizar a cada</label><select class="input" id="mc-hours">${[1, 2, 3, 4, 6, 8, 12, 24].map((h) => `<option value="${h}" ${st.syncHours === h ? 'selected' : ''}>${h} hora${h > 1 ? 's' : ''}</option>`).join('')}</select></div>
-        <div class="field"><label>Histórico importado</label><select class="input" id="mc-days">${[30, 60, 90, 180, 365, 730].map((d) => `<option value="${d}" ${st.historyDays === d ? 'selected' : ''}>${d} dias</option>`).join('')}</select></div>
-        <p class="hint full" style="margin:0">A cada sincronização, os últimos 7 dias são recalculados, porque a Meta ajusta as conversões com atraso. O histórico completo é importado na conexão ou ao clicar em "Recarregar histórico completo".</p>
+      <div class="panel c5" id="sync-box"><div class="panel-h"><h3>Atualização automática</h3>${st.syncIsDefault ? '<span class="badge">Padrão</span>' : '<span class="badge gold">Personalizado</span>'}</div><div class="panel-b">
+        <div class="si-now"><span>Hoje sincroniza a cada</span><b>${esc(st.syncLabel)}</b></div>
+        <div class="si-opts" role="radiogroup" aria-label="Intervalo de sincronização">${INTERVALS.map(([m, l]) => `<button type="button" role="radio" data-int="${m}" class="${st.syncMinutes === m ? 'on' : ''}" aria-checked="${st.syncMinutes === m}">${l}${m === st.defaultSyncMinutes ? '<small>padrão</small>' : ''}</button>`).join('')}<button type="button" data-int="custom" class="${INTERVALS.some(([m]) => m === st.syncMinutes) ? '' : 'on'}">Outro…</button></div>
+        <div class="si-custom" id="si-custom" ${INTERVALS.some(([m]) => m === st.syncMinutes) ? 'hidden' : ''}><input class="input" type="number" id="si-val" min="1" step="1" value="${st.syncMinutes % 60 ? st.syncMinutes : st.syncMinutes / 60}"><select class="input" id="si-unit"><option value="60" ${st.syncMinutes % 60 ? '' : 'selected'}>horas</option><option value="1" ${st.syncMinutes % 60 ? 'selected' : ''}>minutos</option></select></div>
+        <p class="hint" id="si-hint" style="margin:10px 0 0"></p>
+        <div class="si-actions"><button class="btn btn-primary btn-sm" id="si-save" disabled>Salvar como padrão</button>${st.syncIsDefault ? '' : `<button class="btn btn-ghost btn-sm" id="si-reset">Restaurar padrão (${INTERVALS.find(([m]) => m === st.defaultSyncMinutes)[1]})</button>`}</div>
+        <div class="field" style="margin-top:18px"><label>Histórico importado</label><select class="input" id="mc-days">${[30, 60, 90, 180, 365, 730].map((d) => `<option value="${d}" ${st.historyDays === d ? 'selected' : ''}>${d} dias</option>`).join('')}</select></div>
+        <p class="hint" style="margin:6px 0 0">A cada sincronização, os últimos 7 dias são recalculados, porque a Meta ajusta as conversões com atraso.</p>
       </div></div>
       <div class="panel c12"><div class="panel-h"><h3>Contas de anúncios</h3><span class="faint">marque as contas que entram no painel</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Conta</th><th>ID</th><th>Moeda</th><th>Situação na Meta</th><th>Última sincronização</th><th class="r">No painel</th></tr></thead><tbody>
         ${st.accounts.map((a) => `<tr><td><b>${esc(a.name)}</b>${a.business_name ? `<br><small class="faint">${esc(a.business_name)}</small>` : ''}${a.last_error ? `<br><small class="neg">${esc(a.last_error)}</small>` : ''}</td><td><code>${esc(a.id.replace('act_', ''))}</code></td><td>${esc(a.currency || '')}</td><td>${a.account_status === 1 ? '<span class="badge ok">Ativa</span>' : '<span class="badge">Inativa</span>'}</td><td>${a.last_sync_at ? relTime(a.last_sync_at) : '—'}</td><td class="r"><label class="toggle"><input type="checkbox" data-acc="${esc(a.id)}" ${a.enabled ? 'checked' : ''}><i></i></label></td></tr>`).join('')}
@@ -411,7 +458,7 @@ async function renderConnection() {
   $('#mc-full')?.addEventListener('click', () => { if (confirm('Recarregar todo o histórico configurado? Pode levar alguns minutos.')) startSync(true); });
   $('#mc-swap')?.addEventListener('click', () => { $('#mc-swap-box').hidden = !$('#mc-swap-box').hidden; });
   $('#mc-off')?.addEventListener('click', async () => { if (!confirm('Desconectar a Meta? Os dados já importados continuam no painel, mas param de atualizar.')) return; await api('/api/admin/meta/disconnect', { method: 'POST' }); toast('Meta desconectada'); renderConnection(); });
-  $('#mc-hours')?.addEventListener('change', async (e) => { await api('/api/admin/meta/settings', { method: 'PUT', body: { sync_hours: Number(e.target.value) } }); toast(`Sincronização a cada ${e.target.value} h`); renderConnection(); });
+  bindInterval(st);
   $('#mc-days')?.addEventListener('change', async (e) => { await api('/api/admin/meta/settings', { method: 'PUT', body: { history_days: Number(e.target.value) } }); toast('Histórico atualizado. Use "Recarregar histórico completo" para importar agora.', { ms: 5000 }); });
   $$('[data-acc]').forEach((c) => c.addEventListener('change', async () => { await api(`/api/admin/meta/accounts/${encodeURIComponent(c.dataset.acc)}`, { method: 'PUT', body: { enabled: c.checked } }); toast(c.checked ? 'Conta incluída. Os dados chegam na próxima sincronização.' : 'Conta removida do painel'); }));
   $('#utm-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(st.utmTemplate); toast('Parâmetros copiados'); } catch { const r = document.createRange(); r.selectNode($('#utm-text')); getSelection().removeAllRanges(); getSelection().addRange(r); toast('Selecionado. Use Ctrl+C para copiar.'); } });

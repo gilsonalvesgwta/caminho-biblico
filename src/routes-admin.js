@@ -53,12 +53,12 @@ export function registerAdminRoutes(r) {
     const days = Math.min(365, Math.max(1, Number(req.query.days || 30)));
     const since = sinceDays(days);
     const main = db.get("SELECT * FROM products WHERE kind = 'challenge' ORDER BY position LIMIT 1");
-    const paid = db.get("SELECT COUNT(*) c, COALESCE(SUM(amount),0) v FROM sales WHERE status = 'paid' AND COALESCE(paid_at, created_at) >= ?", since);
-    const refunds = db.get("SELECT COUNT(*) c, COALESCE(SUM(amount),0) v FROM sales WHERE status IN ('refunded','chargedback') AND updated_at >= ?", since);
-    const pending = db.get("SELECT COUNT(*) c FROM sales WHERE status = 'waiting_payment' AND created_at >= ?", since).c;
+    const paid = db.get("SELECT COUNT(*) c, COALESCE(SUM(amount),0) v FROM sales WHERE is_test = 0 AND status = 'paid' AND COALESCE(paid_at, created_at) >= ?", since);
+    const refunds = db.get("SELECT COUNT(*) c, COALESCE(SUM(amount),0) v FROM sales WHERE is_test = 0 AND status IN ('refunded','chargedback') AND updated_at >= ?", since);
+    const pending = db.get("SELECT COUNT(*) c FROM sales WHERE is_test = 0 AND status = 'waiting_payment' AND created_at >= ?", since).c;
     const series = db.all(`SELECT substr(datetime(COALESCE(paid_at, created_at), '-3 hours'), 1, 10) d, COUNT(*) c, SUM(amount) v FROM sales
       WHERE status = 'paid' AND COALESCE(paid_at, created_at) >= ? GROUP BY d ORDER BY d`, since);
-    const byProduct = db.all(`SELECT COALESCE(product_name, provider_product_id) name, COUNT(*) c, SUM(amount) v FROM sales WHERE status = 'paid' AND COALESCE(paid_at, created_at) >= ? GROUP BY provider_product_id ORDER BY v DESC LIMIT 8`, since);
+    const byProduct = db.all(`SELECT COALESCE(product_name, provider_product_id) name, COUNT(*) c, SUM(amount) v FROM sales WHERE is_test = 0 AND status = 'paid' AND COALESCE(paid_at, created_at) >= ? GROUP BY provider_product_id ORDER BY v DESC LIMIT 8`, since);
     const students = db.get("SELECT COUNT(DISTINCT user_id) c FROM enrollments WHERE status = 'active'").c;
     const newStudents = db.get('SELECT COUNT(*) c FROM users WHERE created_at >= ?', since).c;
     const active7 = db.get('SELECT COUNT(*) c FROM users WHERE last_seen_at >= ?', sinceDays(7)).c;
@@ -130,9 +130,11 @@ export function registerAdminRoutes(r) {
     requireAdmin(req, 'admin');
     const h = Number(req.body.sync_hours), d = Number(req.body.history_days);
     const out = {};
-    if (req.body.sync_hours !== undefined) { if (!Number.isInteger(h) || h < 1 || h > 24) fail(400, 'Intervalo entre 1 e 24 horas.'); out.meta_sync_hours = String(h); }
+    if (req.body.sync_hours !== undefined) { if (!Number.isInteger(h) || h < 1 || h > 24) fail(400, 'Intervalo entre 1 e 24 horas.'); out.meta_sync_hours = String(h); out.meta_sync_minutes = String(h * 60); }
+    if (req.body.sync_minutes !== undefined) { const m = Number(req.body.sync_minutes); if (!Number.isInteger(m) || m < 15 || m > 1440) fail(400, 'Escolha um intervalo entre 15 minutos e 24 horas.'); out.meta_sync_minutes = String(m); out.meta_sync_hours = String(Math.max(1, Math.round(m / 60))); }
     if (req.body.history_days !== undefined) { if (!Number.isInteger(d) || d < 7 || d > 730) fail(400, 'Histórico entre 7 e 730 dias.'); out.meta_history_days = String(d); }
     setSettings(out);
+    if (out.meta_sync_minutes) audit(req, 'meta.interval', null, { minutes: Number(out.meta_sync_minutes) });
     return { ok: true };
   });
   r.post('/api/admin/meta/sync', (req) => {
@@ -298,10 +300,34 @@ export function registerAdminRoutes(r) {
     if (q.status) { where.push('s.status = ?'); args.push(q.status); }
     if (q.q) { where.push('(s.email LIKE ? OR s.sale_id LIKE ? OR u.name LIKE ? OR s.client_name LIKE ? OR s.client_phone LIKE ? OR s.product_name LIKE ?)'); args.push(like(q.q), like(q.q), like(q.q), like(q.q), like(q.q), like(q.q)); }
     if (q.from) { where.push('s.created_at >= ?'); args.push(q.from); }
+    if (q.test === 'hide') where.push('s.is_test = 0');
+    if (q.test === 'only') where.push('s.is_test = 1');
     const w = where.join(' AND ');
-    const total = db.get(`SELECT COUNT(*) c, COALESCE(SUM(CASE WHEN s.status='paid' THEN s.amount END),0) v FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE ${w}`, ...args);
+    const tests = db.get('SELECT COUNT(*) c FROM sales WHERE is_test = 1').c;
+    const total = db.get(`SELECT COUNT(*) c, COALESCE(SUM(CASE WHEN s.status='paid' AND s.is_test = 0 THEN s.amount END),0) v FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE ${w}`, ...args);
     const rows = db.all(`SELECT s.*, COALESCE(u.name, s.client_name) name, COALESCE(u.phone, s.client_phone) phone FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE ${w} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`, ...args, pg.limit, pg.offset);
-    return { total: total.c, paidValue: total.v, rows, ...pg };
+    return { total: total.c, paidValue: total.v, tests, rows, ...pg };
+  });
+
+  // Vendas de teste: continuam guardadas, mas saem do Financeiro, da Visão geral e dos Anúncios. Dá para desfazer.
+  const testBefore = (d) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d || ''))) fail(400, 'Escolha a data.'); return new Date(Date.parse(`${d}T00:00:00Z`) + 27 * 3600e3).toISOString(); }; // fim do dia em Brasília
+  r.get('/api/admin/sales/test-preview', (req) => {
+    requireAdmin(req, 'owner');
+    const until = testBefore(req.query.before);
+    return db.get("SELECT COUNT(*) c, COALESCE(SUM(CASE WHEN status = 'paid' THEN amount END),0) v, SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) paid FROM sales WHERE is_test = 0 AND created_at < ?", until);
+  });
+  r.post('/api/admin/sales/mark-test', (req) => {
+    requireAdmin(req, 'owner');
+    const flag = req.body?.is_test === false ? 0 : 1;
+    let n = 0;
+    if (Array.isArray(req.body?.ids) && req.body.ids.length) {
+      const ids = req.body.ids.map(Number).filter(Number.isInteger).slice(0, 1000);
+      db.tx(() => { for (const id of ids) n += db.run('UPDATE sales SET is_test = ? WHERE id = ?', flag, id).changes; });
+    } else if (req.body?.before) n = db.run('UPDATE sales SET is_test = ? WHERE created_at < ? AND is_test <> ?', flag, testBefore(req.body.before), flag).changes;
+    else if (req.body?.all_tests && !flag) n = db.run('UPDATE sales SET is_test = 0 WHERE is_test = 1').changes;
+    else fail(400, 'Escolha as vendas.');
+    audit(req, flag ? 'sales.mark_test' : 'sales.unmark_test', null, { count: n, before: req.body?.before || null });
+    return { ok: true, count: n };
   });
 
   r.get('/api/admin/abandoned', (req) => {

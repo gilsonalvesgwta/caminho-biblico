@@ -47,9 +47,9 @@ function totals(from, to) {
       COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 END),0) kept_c, COALESCE(SUM(CASE WHEN status = 'paid' THEN amount END),0) kept_v,
       COALESCE(SUM(CASE WHEN status = 'paid' THEN ${NET} END),0) net,
       COALESCE(SUM(CASE WHEN status = 'paid' AND net_amount IS NOT NULL THEN 1 END),0) net_real_c
-    FROM sales WHERE status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ?`, a, b);
-  const pend = db.get("SELECT COUNT(*) c, COALESCE(SUM(amount),0) v FROM sales WHERE status = 'waiting_payment' AND created_at >= ? AND created_at < ?", a, b);
-  const refused = db.get("SELECT COUNT(*) c FROM sales WHERE status = 'refused' AND created_at >= ? AND created_at < ?", a, b).c;
+    FROM sales WHERE is_test = 0 AND status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ?`, a, b);
+  const pend = db.get("SELECT COUNT(*) c, COALESCE(SUM(amount),0) v FROM sales WHERE is_test = 0 AND status = 'waiting_payment' AND created_at >= ? AND created_at < ?", a, b);
+  const refused = db.get("SELECT COUNT(*) c FROM sales WHERE is_test = 0 AND status = 'refused' AND created_at >= ? AND created_at < ?", a, b).c;
   const abandoned = db.get('SELECT COUNT(*) c FROM leads WHERE created_at >= ? AND created_at < ? AND converted = 0', a, b).c;
   const spend = db.get(`SELECT COALESCE(SUM(spend),0) v, COALESCE(SUM(impressions),0) imp, COALESCE(SUM(clicks),0) clk FROM ad_spend WHERE date >= ? AND date <= ? AND ${NO_DUP}`, from, to);
   const fees = Math.max(0, r.kept_v - r.net);
@@ -86,7 +86,7 @@ export function financeReport(q) {
   const DAY = `substr(datetime(${SALE_DAY}, '-${TZ_OFFSET_H} hours'), 1, 10)`;
 
   const salesDaily = db.all(`SELECT ${DAY} d, COUNT(*) c, SUM(amount) gross, SUM(CASE WHEN status = 'paid' THEN ${NET} ELSE 0 END) net
-    FROM sales WHERE status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ? GROUP BY d`, a, b);
+    FROM sales WHERE is_test = 0 AND status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ? GROUP BY d`, a, b);
   const spendDaily = db.all(`SELECT date d, SUM(spend) v FROM ad_spend WHERE date >= ? AND date <= ? AND ${NO_DUP} GROUP BY date`, from, to);
   const sm = new Map(salesDaily.map((x) => [x.d, x])), pm = new Map(spendDaily.map((x) => [x.d, x.v]));
   const series = [];
@@ -96,7 +96,7 @@ export function financeReport(q) {
   const pmap = productMap();
   const rows = db.all(`SELECT provider_product_id gid, MAX(product_name) name, COUNT(*) c, SUM(amount) gross,
       SUM(CASE WHEN status IN ('refunded','chargedback') THEN amount ELSE 0 END) refunds, SUM(CASE WHEN status = 'paid' THEN ${NET} ELSE 0 END) net
-    FROM sales WHERE status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ? GROUP BY provider_product_id`, a, b);
+    FROM sales WHERE is_test = 0 AND status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ? GROUP BY provider_product_id`, a, b);
   const byP = new Map();
   for (const r of rows) {
     const p = pmap.get(String(r.gid));
@@ -114,11 +114,11 @@ export function financeReport(q) {
   const byProduct = [...byP.values()].map((o) => ({ ...o, roas: o.spend ? o.gross / o.spend : null })).sort((x, y) => y.gross - x.gross);
 
   const byMethod = db.all(`SELECT UPPER(COALESCE(method, '')) method, COUNT(*) c, SUM(amount) gross, SUM(CASE WHEN status IN ('refunded','chargedback') THEN 1 ELSE 0 END) refunds
-    FROM sales WHERE status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ? GROUP BY 1 ORDER BY gross DESC`, a, b);
+    FROM sales WHERE is_test = 0 AND status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ? GROUP BY 1 ORDER BY gross DESC`, a, b);
   const bySource = db.all(`SELECT COALESCE(NULLIF(utm_source,''), '') source, COALESCE(NULLIF(utm_campaign,''), '') campaign, COUNT(*) c, SUM(amount) gross
-    FROM sales WHERE status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ? GROUP BY 1, 2 ORDER BY gross DESC LIMIT 12`, a, b);
+    FROM sales WHERE is_test = 0 AND status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ? GROUP BY 1, 2 ORDER BY gross DESC LIMIT 12`, a, b);
   const refundsList = db.all(`SELECT s.id, s.user_id, s.status, s.amount, s.product_name, s.provider_product_id, s.refunded_at, s.updated_at, COALESCE(u.name, s.client_name) name, s.email
-    FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE s.status IN ('refunded','chargedback') AND COALESCE(s.refunded_at, s.updated_at) >= ? AND COALESCE(s.refunded_at, s.updated_at) < ?
+    FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE s.is_test = 0 AND s.status IN ('refunded','chargedback') AND COALESCE(s.refunded_at, s.updated_at) >= ? AND COALESCE(s.refunded_at, s.updated_at) < ?
     ORDER BY COALESCE(s.refunded_at, s.updated_at) DESC LIMIT 10`, a, b);
 
   return { from, to, days, prevFrom, prevTo, cur, prev, series, byProduct, spendUnassigned, byMethod, bySource, refundsList, fee: { percent: pctFee, fixed } };

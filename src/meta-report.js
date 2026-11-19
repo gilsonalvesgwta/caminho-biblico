@@ -58,7 +58,7 @@ export function resolveSale(s, L) {
 function salesInRange(from, to) {
   const { sql: NET } = netExpr();
   return db.all(`SELECT id, status, amount, ${NET} net, utm_source, utm_medium, utm_campaign, utm_content, substr(datetime(${SALE_DAY}, '-3 hours'), 1, 10) d
-    FROM sales WHERE status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ?`, startIso(from), startIso(addDays(to, 1)));
+    FROM sales WHERE is_test = 0 AND status IN ${APPROVED} AND ${SALE_DAY} >= ? AND ${SALE_DAY} < ?`, startIso(from), startIso(addDays(to, 1)));
 }
 const addSale = (o, s) => {
   if (s.status === 'paid') { o.sales++; o.revenue += s.amount; o.net += s.net; }
@@ -66,6 +66,16 @@ const addSale = (o, s) => {
 };
 
 // ---------- relatório ----------
+const PAUSED = new Set(['PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED']);
+const GONE = new Set(['DELETED', 'ARCHIVED']);
+/** Filtro de status da tabela: ativos, pausados, excluídos/arquivados ou inativos (pausados + excluídos) */
+export function statusMatch(st, f) {
+  if (!f) return true;
+  if (f === 'active') return st === 'ACTIVE';
+  if (f === 'paused') return PAUSED.has(st);
+  if (f === 'deleted') return GONE.has(st);
+  return st !== 'ACTIVE'; // 'inactive' e o antigo 'paused' genérico
+}
 function where(f, alias = 'i') {
   const w = [`${alias}.date >= ?`, `${alias}.date <= ?`]; const p = [f.from, f.to];
   if (f.account) { w.push(`${alias}.account_id = ?`); p.push(f.account); }
@@ -117,7 +127,7 @@ export function metaReport(q = {}) {
     for (const s of salesInRange(from, to)) { const r = resolveSale(s, L); if (!inFilter(r, f) || !r[key]) continue; const o = rows.get(r[key]) || { ...zero(), id: r[key] }; addSale(o, s); rows.set(r[key], o); }
     const meta = new Map(db.all(`SELECT * FROM ${table}`).map((x) => [x.id, x]));
     return [...rows.values()].map((r) => { const m = meta.get(r.id) || {}; return { id: r.id, name: m.name || r.id, status: m.effective_status || '', ...extra(m), ...metrics(r) }; })
-      .filter((r) => !status || (status === 'active' ? r.status === 'ACTIVE' : r.status !== 'ACTIVE'))
+      .filter((r) => statusMatch(r.status, status))
       .sort((a, b) => b.spend - a.spend || b.revenue - a.revenue);
   };
   const campName = (id) => L.camps.get(id)?.name || '';

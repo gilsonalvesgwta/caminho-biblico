@@ -23,6 +23,8 @@ const ADS = [
   { id: '120220000000000211', adset_id: SETS[2].id, campaign_id: CAMPS[1].id, name: 'Carrossel · 7 dias', effective_status: 'ACTIVE', k: 0.5 },
   { id: '120220000000000311', adset_id: SETS[3].id, campaign_id: CAMPS[2].id, name: 'Vídeo · Carol e Rhus', effective_status: 'PAUSED', k: 0.9 },
 ];
+// anúncio já excluído na Meta: some da lista de anúncios, mas tem métricas no histórico
+const GHOST = { id: '120220000000000199', adset_id: SETS[0].id, campaign_id: CAMPS[0].id, name: 'Vídeo antigo (excluído)', effective_status: 'ACTIVE', k: 0.4 };
 const seed = (s) => { let x = Math.sin(s) * 10000; return x - Math.floor(x); };
 const days = (a, b) => { const out = []; for (let d = a; d <= b; d = new Date(Date.parse(`${d}T00:00:00Z`) + 86400e3).toISOString().slice(0, 10)) out.push(d); return out; };
 
@@ -74,7 +76,7 @@ export function startFakeMeta(port) {
       if (!rateLimitedOnce) { rateLimitedOnce = true; return send(400, { error: { message: 'User request limit reached', code: 17 } }); }
       const tr = JSON.parse(u.searchParams.get('time_range') || '{}');
       const rows = [];
-      for (const d of days(tr.since, tr.until)) for (const ad of ADS) { const x = insight(ad, d); if (x) rows.push(x); }
+      for (const d of days(tr.since, tr.until)) for (const ad of [...ADS, GHOST]) { const x = insight(ad, d); if (x) rows.push(x); }
       return page(rows);
     }
     if (/^act_\d+\//.test(p)) return send(200, { data: [] });

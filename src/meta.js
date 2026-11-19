@@ -232,24 +232,33 @@ export function syncMeta({ full = false, trigger = 'agenda' } = {}) {
   return running;
 }
 
+/** Intervalo entre sincronizações, em minutos (padrão: 6 horas; mínimo 15 min, máximo 24 h) */
+export const DEFAULT_SYNC_MINUTES = 360;
+export function syncMinutes(s = getSettings()) {
+  const m = Number(s.meta_sync_minutes) || (Number(s.meta_sync_hours) || 6) * 60;
+  return Math.min(1440, Math.max(15, Math.round(m)));
+}
+export const intervalLabel = (m) => (m < 60 ? `${m} min` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`);
+
 /** Chamado pelo agendador: sincroniza quando passou o intervalo configurado */
 export async function metaSyncIfDue() {
   const s = getSettings();
   if (!s.meta_token_enc || running) return;
-  const hours = Math.min(24, Math.max(1, Number(s.meta_sync_hours) || 6));
+  const mins = syncMinutes(s);
   const last = Date.parse(s.meta_last_attempt_at || 0) || 0;
-  if (Date.now() - last < hours * 3600e3 - 60e3) return;
+  if (Date.now() - last < mins * 60e3 - 30e3) return;
   await syncMeta({ trigger: 'agenda' });
 }
 
 export function metaStatus() {
   const s = getSettings();
-  const hours = Math.min(24, Math.max(1, Number(s.meta_sync_hours) || 6));
+  const mins = syncMinutes(s);
   const last = s.meta_last_attempt_at;
   return {
     connected: !!s.meta_token_enc, user: s.meta_user_name, tokenHint: s.meta_token_hint, connectedAt: s.meta_connected_at, hasSecret: !!s.meta_app_secret_enc,
-    apiVersion: s.meta_api_version, syncHours: hours, historyDays: Number(s.meta_history_days) || 90,
-    lastSyncAt: s.meta_last_sync_at || null, nextSyncAt: s.meta_token_enc ? new Date((Date.parse(last || 0) || Date.now()) + hours * 3600e3).toISOString() : null,
+    apiVersion: s.meta_api_version, syncMinutes: mins, syncHours: mins / 60, syncLabel: intervalLabel(mins), syncIsDefault: mins === DEFAULT_SYNC_MINUTES, defaultSyncMinutes: DEFAULT_SYNC_MINUTES,
+    historyDays: Number(s.meta_history_days) || 90,
+    lastSyncAt: s.meta_last_sync_at || null, nextSyncAt: s.meta_token_enc ? new Date((Date.parse(last || 0) || Date.now()) + mins * 60e3).toISOString() : null,
     syncing: !!running,
     accounts: db.all('SELECT id, name, currency, timezone, account_status, business_name, enabled, last_sync_at, last_error FROM meta_accounts ORDER BY enabled DESC, name'),
     log: db.all('SELECT * FROM meta_sync_log ORDER BY id DESC LIMIT 12'),

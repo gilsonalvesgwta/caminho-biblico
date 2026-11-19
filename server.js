@@ -126,6 +126,8 @@ async function tick() {
 }
 setTimeout(tick, 5000).unref();
 setInterval(tick, Math.min(config.schedulerMinutes, 30) * 60e3).unref();
+// a Meta pode sincronizar a cada 15 min: confere todo minuto (só chama a API quando chega a hora)
+setInterval(() => metaSyncIfDue().catch((e) => console.error('[meta]', e.message)), 60e3).unref();
 
 function shutdown(sig) {
   console.log(`[${sig}] encerrando…`);

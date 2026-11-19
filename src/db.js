@@ -363,6 +363,11 @@ const migrations = [
   CREATE INDEX meta_insights_campaign ON meta_insights(campaign_id, date);
   CREATE TABLE meta_sync_log (id INTEGER PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL, trigger TEXT, message TEXT, rows INTEGER);
   `,
+  // 9: vendas de teste (ficam guardadas, mas fora de todos os números)
+  `
+  ALTER TABLE sales ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX sales_is_test ON sales(is_test, status);
+  `,
 ];
 
 export function migrate() {
@@ -414,7 +419,7 @@ export const SETTING_DEFAULTS = {
   fee_percent: '4.99', // taxa da plataforma de pagamento (%), usada quando a Greenn não envia o líquido
   fee_fixed: '1.00', // taxa fixa por venda (R$)
   meta_token_enc: '', meta_token_hint: '', meta_app_secret_enc: '', meta_user_name: '', meta_connected_at: '',
-  meta_api_version: 'v26.0', meta_sync_hours: '6', meta_history_days: '90',
+  meta_api_version: 'v26.0', meta_sync_hours: '6', meta_sync_minutes: '', meta_history_days: '90',
   meta_last_sync_at: '', meta_last_attempt_at: '', meta_dash_prefs: '',
 };
 const SECRET_KEYS = new Set(['greenn_webhook_token', 'resend_api_key', 'brevo_api_key', 'smtp_pass', 'outbound_webhook_secret']);
