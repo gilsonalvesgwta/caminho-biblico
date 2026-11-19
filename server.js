@@ -55,6 +55,14 @@ const server = http.createServer(async (req, res) => {
   req.ip = clientIp(req);
   req.query = Object.fromEntries(url.searchParams);
   const pathname = url.pathname;
+  // endereço antigo → endereço novo (mantém caminho e parâmetros). APIs, webhook e /health não são redirecionados.
+  if (config.legacyHosts.length && (req.method === 'GET' || req.method === 'HEAD') && !pathname.startsWith('/api/') && pathname !== '/health') {
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+    if (config.legacyHosts.includes(host)) {
+      res.writeHead(301, { Location: config.appUrl + req.url, 'Cache-Control': 'public, max-age=3600' });
+      return res.end();
+    }
+  }
 
   try {
     if (pathname.startsWith('/api/') || pathname === '/health') {

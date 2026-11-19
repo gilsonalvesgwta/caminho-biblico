@@ -1,6 +1,7 @@
 // Teste de ponta a ponta usado no CI: sobe o servidor num banco vazio e percorre o fluxo principal.
 // Uso: node --no-warnings scripts/smoke-test.js
 import { spawn } from 'node:child_process';
+import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +18,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'caminho-teste-'));
 let logs = '';
 
 const srv = spawn(process.execPath, ['--no-warnings', 'server.js'], {
-  env: { ...process.env, META_GRAPH_URL: `http://127.0.0.1:${META_PORT}`, PORT: String(PORT), DATA_DIR: dataDir, APP_URL: BASE, ADMIN_EMAIL: 'dono@teste.com', ADMIN_PASSWORD: 'senha-forte-123', NODE_ENV: 'production', SCHEDULER_MINUTES: '60' },
+  env: { ...process.env, LEGACY_HOSTS: 'antigo.teste.com', META_GRAPH_URL: `http://127.0.0.1:${META_PORT}`, PORT: String(PORT), DATA_DIR: dataDir, APP_URL: BASE, ADMIN_EMAIL: 'dono@teste.com', ADMIN_PASSWORD: 'senha-forte-123', NODE_ENV: 'production', SCHEDULER_MINUTES: '60' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 srv.stdout.on('data', (d) => (logs += d));
@@ -366,6 +367,17 @@ try {
   assert.ok((await m_rep()).totals.spend > 0, 'dados continuam depois de desconectar');
   assert.equal((await call('admin', 'POST', '/api/admin/meta/sync', {})).status, 400);
   step('Meta: configurações, preferências do painel, permissões e desconexão');
+
+  // endereço antigo: páginas redirecionam para o APP_URL; APIs e webhook continuam respondendo
+  const viaHost = (host, method, p, body) => new Promise((ok, ko) => { const rq = http.request({ host: '127.0.0.1', port: PORT, path: p, method, headers: { host, 'content-type': 'application/json' } }, (rs) => { rs.resume(); rs.on('end', () => ok(rs)); }); rq.on('error', ko); if (body) rq.write(JSON.stringify(body)); rq.end(); });
+  const lr = await viaHost('antigo.teste.com', 'GET', '/p/desafio-7-dias/dia/1?x=1');
+  assert.equal(lr.statusCode, 301); assert.equal(lr.headers.location, `${BASE}/p/desafio-7-dias/dia/1?x=1`);
+  assert.equal((await viaHost('antigo.teste.com', 'GET', '/admin')).headers.location, `${BASE}/admin`);
+  assert.equal((await viaHost('antigo.teste.com', 'GET', '/health')).statusCode, 200);
+  assert.equal((await viaHost('antigo.teste.com', 'GET', '/api/app/brand')).statusCode, 200);
+  assert.equal((await viaHost('antigo.teste.com', 'POST', hook, { type: 'checkoutAbandoned', lead: { email: 'legado@teste.com' } })).statusCode, 200, 'webhook da Greenn no endereço antigo');
+  assert.equal((await viaHost('127.0.0.1', 'GET', '/login')).statusCode, 200, 'endereço novo abre normalmente');
+  step('endereço antigo redireciona para o novo, sem afetar APIs e webhook');
 
   for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/shared/player.js', '/shared/player.css', '/shared/pcard.js', '/shared/pcard.css', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
   step('arquivos do app e do painel');

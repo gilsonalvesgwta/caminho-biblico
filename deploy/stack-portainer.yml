@@ -11,7 +11,9 @@ services:
     image: ghcr.io/gilsonalvesgwta/caminho-biblico:main
     environment:
       - NODE_ENV=production
-      - APP_URL=https://caminho.wtatech.com.br
+      - APP_URL=https://altis.wtatech.com.br
+      # endereço antigo: continua funcionando e leva o aluno para o novo
+      - LEGACY_HOSTS=caminho.wtatech.com.br
       - PORT=3100
       - DATA_DIR=/app/data
       - TRUST_PROXY=true
@@ -43,6 +45,14 @@ services:
         - traefik.http.routers.caminho.tls=true
         - traefik.http.routers.caminho.tls.certresolver=letsencryptresolver
         - traefik.http.routers.caminho.priority=10
+        - traefik.http.routers.caminho.service=caminho
+        # endereço principal (certificado próprio, independente do antigo)
+        - traefik.http.routers.altis.rule=Host(`altis.wtatech.com.br`)
+        - traefik.http.routers.altis.entrypoints=websecure
+        - traefik.http.routers.altis.tls=true
+        - traefik.http.routers.altis.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.altis.priority=10
+        - traefik.http.routers.altis.service=caminho
         - traefik.http.services.caminho.loadbalancer.server.port=3100
 
 volumes:

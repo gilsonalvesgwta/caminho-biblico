@@ -28,5 +28,7 @@ export const config = {
   tzOffsetMinutes: Number(env.TZ_OFFSET_MINUTES || -180),
   schedulerMinutes: Number(env.SCHEDULER_MINUTES || 10),
   isProd: env.NODE_ENV === 'production',
+  // Endereços antigos: páginas abertas neles vão para o APP_URL (as APIs e o webhook continuam respondendo lá)
+  legacyHosts: String(env.LEGACY_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
 };
 fs.mkdirSync(config.dataDir, { recursive: true });

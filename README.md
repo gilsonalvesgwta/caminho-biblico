@@ -111,6 +111,12 @@ Menu **Anúncios**. Conexão por token de usuário do sistema (permissão `ads_r
 - O gasto da Meta alimenta o Financeiro automaticamente (o CSV importado do mesmo dia é ignorado para não duplicar). Cada campanha pode ser vinculada a um produto.
 - Versão da API: v26.0 (setting `meta_api_version`). Para testes: `node scripts/fake-meta.js 4999` e `META_GRAPH_URL=http://127.0.0.1:4999`.
 
+## 2f. Endereço
+
+- Principal: `https://altis.wtatech.com.br` (`APP_URL`). Links de e-mails e do painel usam esse endereço.
+- Antigo: `caminho.wtatech.com.br` em `LEGACY_HOSTS` continua no ar. Páginas redirecionam (301) para o endereço novo mantendo o caminho; `/api/*` (inclusive o webhook da Greenn) e `/health` respondem normalmente nos dois.
+- No Traefik, cada endereço tem o próprio router e certificado (`caminho` e `altis`).
+
 ## 3. Como a liberação funciona
 
 - Pagamento aprovado na Greenn → webhook → cadastro do aluno + inscrição → e-mail com link para criar a senha (vale 72h; depois o aluno usa "Primeiro acesso / esqueci a senha").
