@@ -256,6 +256,7 @@ function pageHome(p) {
       <div class="hero-cta">${cta || ''}</div>
     </section>
     ${p.showLive && ME.live && (done >= L.length - 1 || finished) ? liveCard(ME.live) : ''}
+    ${!isMulti() ? offersSection() : ''}
     <div class="section-h"><h2>${isChallenge ? 'Sua jornada' : 'Conteúdo'}</h2><span class="faint" style="font-size:13px">${releaseNote}</span></div>
     ${blocks.map((g) => `${g.b ? `<div class="block-label"><span class="eyebrow">${esc(g.b)}${blockSub[g.b] ? ` · ${blockSub[g.b]}` : ''}</span></div>` : '<div style="height:6px"></div>'}<div class="day-list">${g.items.map(dayCard).join('')}</div>`).join('')}
     ${L.length ? '' : '<div class="card"><p class="muted" style="margin:0">O conteúdo deste produto será publicado em breve.</p></div>'}
@@ -267,6 +268,7 @@ function pageHome(p) {
   `, 'home');
   tickCountdowns();
   bindInstall();
+  bindOffers();
   if (done >= 1 && p.hasActivities) loadHomeSummary(p);
 }
 
@@ -283,7 +285,7 @@ function productCard(p) {
   else if (pr.nextLocked?.availableAt) { cta = 'Ver jornada'; status = `${esc(u.label)} ${pr.nextLocked.number} em <span data-cd="${pr.nextLocked.availableAt}">${countdown(pr.nextLocked.availableAt)}</span>`; }
   else { cta = 'Acessar'; status = pr.total ? `${pr.done} de ${pr.total}` : 'Em breve'; }
   const pct = p.kind === 'bonus' || !pr.total ? null : Math.round((pr.done / pr.total) * 100);
-  return productCardHtml({ href: `/p/${p.slug}`, theme: p.theme, cover: p.cover, logo: p.logo, name: p.name, shortName: p.shortName, mentor: p.mentor, kindLabel: p.badge || KIND_LABEL[p.kind],
+  return productCardHtml({ href: `/p/${p.slug}`, theme: p.theme, cover: p.cover, logo: p.logo, name: p.name, shortName: p.shortName, mentor: p.mentor, kindLabel: p.badge || (p.gift ? 'Bônus para alunos' : KIND_LABEL[p.kind]),
     tagline: p.tagline, progress: { label: status, pct }, done: pr.finished && p.kind !== 'bonus', footNote: p.expiresAt ? `Até ${fmtDate(p.expiresAt, { day: '2-digit', month: '2-digit', year: 'numeric' })}` : 'Acesso vitalício', cta });
 }
 function storeCard(p) {
@@ -292,6 +294,80 @@ function storeCard(p) {
   return productCardHtml({ href: p.salesUrl || '', external: true, theme: p.theme, cover: p.cover, logo: p.logo, name: p.name, shortName: p.shortName, mentor: p.mentor, kindLabel: p.badge || KIND_LABEL[p.kind],
     tagline: p.tagline, progress: n ? { label: `${n} ${esc(unit)}${n > 1 ? (/l$/.test(unit) ? 'is' : /ão$/.test(unit) ? 'ões' : 's') : ''}`, pct: null } : null, store: true, cta: p.salesUrl ? 'Quero conhecer' : 'Em breve', ctaArrow: !!p.salesUrl });
 }
+// ---------- curso grátis para quem já é aluno (oferta em destaque) ----------
+const moneyBR = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const ICON_GIFT = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg>';
+const ICON_TICK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+function offerHtml(o, { big = false } = {}) {
+  const u = U(o);
+  const n = o.lessonsCount || 0;
+  const plural = (w) => (n > 1 ? (/l$/.test(w) ? `${w.slice(0, -1)}is` : /ão$/.test(w) ? `${w.slice(0, -2)}ões` : `${w}s`) : w);
+  const facts = [n ? `${n} ${plural(u.label.toLowerCase())}` : '', 'acesso imediato', 'sem custo e sem cartão'].filter(Boolean);
+  const ribbon = `<span class="offer-ribbon">${ICON_GIFT} Bônus para alunos</span>`;
+  const media = o.cover ? `<div class="offer-media" style="background-image:url('${esc(o.cover)}')">${ribbon}</div>`
+    : `<div class="offer-media is-logo">${ribbon}${o.logo ? `<img src="${esc(o.logo)}" alt="">` : `<span class="offer-mono">${esc(initials(o))}</span>`}</div>`;
+  return `<section class="offer${big ? ' offer-big' : ''}" style="${varsToStyle(themeVars(o.theme))}" aria-label="${esc(o.name)}: grátis para você">
+    <div class="offer-glow" aria-hidden="true"></div>
+    <div class="offer-side">${media}</div>
+    <div class="offer-body">
+      <span class="offer-eyebrow">Presente liberado para você${o.via ? ` · por ser aluno de <b>${esc(o.via)}</b>` : ''}</span>
+      <h2 class="offer-title">${esc(o.name)}</h2>
+      ${o.tagline ? `<p class="offer-promise">${esc(o.tagline)}</p>` : ''}
+      ${o.bullets?.length ? `<ul class="offer-list">${o.bullets.map((b) => `<li><i>${ICON_TICK}</i>${esc(b)}</li>`).join('')}</ul>` : ''}
+      <div class="offer-buy">
+        <div class="offer-price">${o.listPrice ? `<span class="offer-from">de <s>${moneyBR(o.listPrice)}</s> por</span>` : '<span class="offer-from">para você</span>'}<span class="offer-zero"><b>${o.listPrice ? 'R$ 0' : 'Grátis'}</b>${o.listPrice ? '<em>grátis</em>' : ''}</span></div>
+        <button class="offer-cta" data-claim="${esc(o.slug)}"><span>${esc(o.offerCta || 'Acessar agora, é grátis')}</span>${ICON.arrow}</button>
+      </div>
+      <p class="offer-fine">${facts.join(' · ')}</p>
+    </div>
+  </section>`;
+}
+function offersSection() {
+  const list = ME.offers || [];
+  if (!list.length) return '';
+  return `<div class="section-h"><h2>Presente para você</h2><span class="faint" style="font-size:13px">exclusivo para quem já é aluno</span></div><div class="offers">${list.map((o) => offerHtml(o)).join('')}</div>`;
+}
+function bindOffers() {
+  document.querySelectorAll('[data-claim]').forEach((b) => (b.onclick = () => claimOffer(b)));
+}
+async function claimOffer(btn) {
+  const slug = btn.dataset.claim;
+  const o = (ME.offers || []).find((x) => x.slug === slug);
+  const label = btn.querySelector('span').textContent;
+  btn.disabled = true; btn.classList.add('is-loading'); btn.querySelector('span').textContent = 'Liberando seu acesso…';
+  try {
+    await api(`/api/app/unlock/${slug}`, { method: 'POST' });
+    await loadMe();
+    celebrateClaim(o || bySlug(slug), slug);
+  } catch (e) {
+    toast(e.message || 'Não foi possível liberar agora. Tente de novo.', { error: true });
+    btn.disabled = false; btn.classList.remove('is-loading'); btn.querySelector('span').textContent = label;
+  }
+}
+/** "Pronto, é seu!" — confirmação do resgate */
+function celebrateClaim(o, slug) {
+  const el = document.createElement('div');
+  el.className = 'claimed';
+  el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
+  const sparks = Array.from({ length: 22 }, (_, i) => `<i style="--a:${(i / 22) * 360}deg;--d:${90 + (i % 5) * 26}px;--t:${0.9 + (i % 4) * 0.18}s"></i>`).join('');
+  el.innerHTML = `<div class="claimed-card" style="${varsToStyle(themeVars(o?.theme || {}))}">
+    <div class="claimed-burst" aria-hidden="true">${sparks}</div>
+    <div class="claimed-badge">${o?.logo ? `<img src="${esc(o.logo)}" alt="">` : ICON_GIFT.replace(/16/g, '34')}</div>
+    <span class="claimed-eyebrow">Acesso liberado</span>
+    <h2>Pronto, agora é seu!</h2>
+    <p><b>${esc(o?.name || 'O conteúdo')}</b> já está em <b>Meus conteúdos</b>${o?.listPrice ? `, um presente de ${moneyBR(o.listPrice)}` : ''}. Bons estudos!</p>
+    <div class="claimed-actions"><a class="btn btn-gold" href="/p/${esc(slug)}" data-link data-close-claimed>Começar agora ${ICON.arrow}</a><button class="btn btn-ghost-light" data-close-claimed>Ver depois</button></div>
+  </div>`;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('on'));
+  const close = (goTo) => { el.classList.remove('on'); setTimeout(() => el.remove(), 220); removeEventListener('keydown', onKey); goTo ? go(goTo) : route(); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  addEventListener('keydown', onKey);
+  el.querySelectorAll('[data-close-claimed]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); close(b.tagName === 'A' ? `/p/${slug}` : null); }));
+  el.addEventListener('click', (e) => { if (e.target === el) close(); });
+  setTimeout(() => el.querySelector('.btn-gold')?.focus(), 300);
+}
+
 function storeSection(store) {
   return `<div class="section-h"><h2>Conheça também</h2></div><div class="pgrid">${store.map(storeCard).join('')}</div>`;
 }
@@ -311,6 +387,7 @@ function pageStore() {
       ${resume ? `<a class="resume" href="${dayHref(resume, progressOf(resume).current.number)}" data-link style="${varsToStyle(themeVars(resume.theme))}">
         <span class="resume-ico">${ICON.play}</span><span class="resume-txt"><small>Continue de onde parou</small><b>${esc(resume.shortName || resume.name)} · ${esc(U(resume).label)} ${progressOf(resume).current.number}</b><span>${same(progressOf(resume).current.title, `${U(resume).label} ${progressOf(resume).current.number}`) ? `${progressOf(resume).done} de ${progressOf(resume).total} concluíd${U(resume).o}s` : esc(progressOf(resume).current.title)}</span></span>${ICON.arrow}</a>` : ''}
     </section>
+    ${offersSection()}
     <div class="section-h"><h2>Meus conteúdos</h2><span class="faint" style="font-size:13px">${own.length} ${own.length === 1 ? 'produto' : 'produtos'}</span></div>
     <div class="pgrid">${own.map(productCard).join('')}</div>
     ${ME.store?.length ? storeSection(ME.store) : ''}
@@ -318,6 +395,7 @@ function pageStore() {
   `, 'store', { wide: true });
   tickCountdowns();
   bindInstall();
+  bindOffers();
 }
 
 function pageBonus(p) {
@@ -333,6 +411,12 @@ function pageBonus(p) {
 
 function pageNotOwned(slug) {
   setContext(null);
+  // curso liberado como presente: a página mostra a oferta para resgatar
+  const of = ME.offers?.find((x) => x.slug === slug);
+  if (of) {
+    shell(`${isMulti() || mains().length ? `<a class="back" href="/" data-link>${ICON.back} Meus conteúdos</a>` : ''}<div class="offer-page">${offerHtml(of, { big: true })}</div>`, 'store', { wide: true });
+    return bindOffers();
+  }
   const st = ME.store?.find((x) => x.slug === slug);
   shell(`<div class="locked-page"><div class="ico">${ICON.lock}</div><h1 style="font-size:30px">${st ? esc(st.name) : 'Conteúdo indisponível'}</h1>
     <p class="muted" style="margin-top:12px">${st ? 'Este conteúdo ainda não faz parte da sua conta.' : 'Você não tem acesso a este conteúdo, ou ele não está mais disponível.'}</p>

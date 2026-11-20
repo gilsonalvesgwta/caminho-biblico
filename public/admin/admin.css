@@ -504,3 +504,33 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .ex-rec button { flex: 1; }
 .tbl td.nowrap { white-space: nowrap; }
 .tbl td small.faint { font-weight: 500; }
+
+/* ---------- grátis para alunos ---------- */
+.tab-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gold-500); margin-left: 4px; vertical-align: 2px; }
+.unl-intro { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border-radius: 16px; background: linear-gradient(135deg, #0F2234, #0A1724); color: #fff; }
+.unl-intro b { font-size: 15px; }
+.unl-intro p { margin: 4px 0 0; color: rgba(255,255,255,.72); font-size: 13.5px; line-height: 1.5; }
+.unl-intro .badge { margin-left: auto; flex: none; }
+.unl-ico { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: rgba(201,164,92,.16); color: var(--gold-300); flex: none; }
+.unl-body { display: grid; gap: 16px; }
+.unl-body[hidden] { display: none; }
+.unl-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.unl-opt { display: flex; gap: 10px; align-items: flex-start; padding: 13px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.unl-opt:hover { border-color: var(--line-strong); }
+.unl-opt:has(input:checked) { border-color: var(--gold-500); box-shadow: 0 0 0 3px rgba(201,164,92,.18); }
+.unl-opt input { margin-top: 3px; accent-color: var(--ink-900); }
+.unl-opt b { font-size: 14px; }
+.unl-opt em.badge { font-style: normal; margin-left: 4px; vertical-align: 1px; }
+.unl-opt small { display: block; color: var(--text-3); font-size: 12.5px; margin-top: 3px; line-height: 1.45; }
+.unl-prods { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 10px; padding: 12px; border-radius: 14px; background: #FAF8F3; border: 1px solid var(--line); }
+.unl-prods[hidden] { display: none; }
+.unl-chk { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 10px; background: #fff; border: 1px solid var(--line); cursor: pointer; font-size: 13.5px; font-weight: 600; }
+.unl-chk:has(input:checked) { border-color: var(--gold-500); background: #FFFBF2; }
+.unl-chk input { accent-color: var(--ink-900); }
+.unl-chk small { margin-left: auto; }
+#unl-offer { transition: opacity .15s; }
+@media (max-width: 720px) { .unl-opts { grid-template-columns: 1fr; } .unl-intro { flex-wrap: wrap; } .unl-intro .badge { margin-left: 0; } }
+
+.unl-intro + .toggle { margin: 8px 0 2px; }
+.unl-body { padding-top: 4px; }
+.unl-body .label { display: block; margin-bottom: 8px; }

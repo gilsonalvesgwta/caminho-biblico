@@ -36,6 +36,11 @@ export function grantAccess(userId, productId, { source = 'greenn', saleRef = nu
   const ex = db.get('SELECT * FROM enrollments WHERE user_id = ? AND product_id = ?', userId, productId);
   if (ex) {
     if (ex.status === 'active') {
+      // tinha ganhado como bônus e agora comprou (ou a equipe liberou): passa a valer pela compra, não depende mais do outro produto
+      if (ex.source === 'unlock' && source !== 'unlock') {
+        db.run('UPDATE enrollments SET source = ?, sale_ref = COALESCE(?, sale_ref), expires_at = ?, updated_at = ? WHERE id = ?', source, saleRef, expires, t, ex.id);
+        return { enrollment: db.get('SELECT * FROM enrollments WHERE id = ?', ex.id), activated: false };
+      }
       if (expiresAt !== undefined && expiresAt !== ex.expires_at) db.run('UPDATE enrollments SET expires_at = ?, updated_at = ? WHERE id = ?', expiresAt, t, ex.id);
       return { enrollment: db.get('SELECT * FROM enrollments WHERE id = ?', ex.id), activated: false };
     }

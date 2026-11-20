@@ -415,6 +415,14 @@ const migrations = [
   );
   CREATE INDEX expenses_start ON expenses(start_date);
   `,
+  // 15: curso grátis para quem já é aluno (regra no produto) + oferta: preço "de", botão e destaques
+  `
+  ALTER TABLE products ADD COLUMN unlock_from TEXT NOT NULL DEFAULT '';
+  ALTER TABLE products ADD COLUMN unlock_mode TEXT NOT NULL DEFAULT 'claim';
+  ALTER TABLE products ADD COLUMN list_price REAL;
+  ALTER TABLE products ADD COLUMN offer_cta TEXT;
+  ALTER TABLE products ADD COLUMN offer_bullets TEXT NOT NULL DEFAULT '[]';
+  `,
 ];
 
 export function migrate() {

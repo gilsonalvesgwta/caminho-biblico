@@ -511,7 +511,7 @@ async function pageStudent(id) {
         <div class="panel"><div class="panel-h"><h3>Compras</h3></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Venda</th><th>Produto</th><th>Status</th><th class="r">Valor</th><th>Data</th></tr></thead><tbody>${d.sales.map((s) => `<tr><td>${esc(s.sale_id)}</td><td>${esc(s.product_name || s.provider_product_id)}</td><td>${badge(s.status)}</td><td class="r">${brl(s.amount)}</td><td>${fmtDateTime(s.created_at)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Sem compras registradas (acesso manual).</td></tr>'}</tbody></table></div></div>
       </div>
       <div class="c4 gap">
-        <div class="panel"><div class="panel-h"><h3>Produtos do aluno</h3>${can('support') ? '<button class="btn btn-primary btn-sm" id="grant">+ Liberar produto</button>' : ''}</div><div class="panel-b acc-list">${d.enrollments.length ? d.enrollments.map((e) => { const p = d.products.find((x) => x.id === e.product_id) || {}; const active = e.status === 'active' && (!e.expires_at || e.expires_at > new Date().toISOString()); const expired = e.status === 'active' && e.expires_at && e.expires_at <= new Date().toISOString(); return `<div class="acc"><span class="acc-dot" style="background:${esc(p.theme?.accent || '#C9A45C')};box-shadow:0 0 0 3px ${esc(p.theme?.primary || '#0B1A2A')}"></span><div class="acc-main"><b>${esc(e.pname)}</b><small>${expired ? '<span class="badge warn">Expirado</span>' : active ? '<span class="badge ok">Ativo</span>' : badge(e.status)} ${{ greenn: 'Greenn', manual: 'Manual' }[e.source] || esc(e.source)} · desde ${fmtDate(e.started_at)}${e.expires_at ? ` · até ${fmtDate(e.expires_at)}` : ' · vitalício'}</small></div>${can('support') ? `<div class="acc-act">${active || expired ? `<button class="btn btn-soft btn-sm" data-exp="${e.product_id}" title="Alterar validade">Validade</button><button class="btn btn-danger btn-sm" data-acc="revoke" data-pid="${e.product_id}">Remover</button>` : `<button class="btn btn-soft btn-sm" data-reac="${e.product_id}">Reativar</button>`}</div>` : ''}</div>`; }).join('') : '<p class="faint" style="margin:0">Nenhum produto ainda.</p>'}</div></div>
+        <div class="panel"><div class="panel-h"><h3>Produtos do aluno</h3>${can('support') ? '<button class="btn btn-primary btn-sm" id="grant">+ Liberar produto</button>' : ''}</div><div class="panel-b acc-list">${d.enrollments.length ? d.enrollments.map((e) => { const p = d.products.find((x) => x.id === e.product_id) || {}; const active = e.status === 'active' && (!e.expires_at || e.expires_at > new Date().toISOString()); const expired = e.status === 'active' && e.expires_at && e.expires_at <= new Date().toISOString(); return `<div class="acc"><span class="acc-dot" style="background:${esc(p.theme?.accent || '#C9A45C')};box-shadow:0 0 0 3px ${esc(p.theme?.primary || '#0B1A2A')}"></span><div class="acc-main"><b>${esc(e.pname)}</b><small>${expired ? '<span class="badge warn">Expirado</span>' : active ? '<span class="badge ok">Ativo</span>' : badge(e.status)} ${{ greenn: 'Greenn', manual: 'Manual', unlock: 'Grátis para aluno' }[e.source] || esc(e.source)} · desde ${fmtDate(e.started_at)}${e.expires_at ? ` · até ${fmtDate(e.expires_at)}` : ' · vitalício'}</small></div>${can('support') ? `<div class="acc-act">${active || expired ? `<button class="btn btn-soft btn-sm" data-exp="${e.product_id}" title="Alterar validade">Validade</button><button class="btn btn-danger btn-sm" data-acc="revoke" data-pid="${e.product_id}">Remover</button>` : `<button class="btn btn-soft btn-sm" data-reac="${e.product_id}">Reativar</button>`}</div>` : ''}</div>`; }).join('') : '<p class="faint" style="margin:0">Nenhum produto ainda.</p>'}</div></div>
         <div class="panel"><div class="panel-h"><h3>Conta</h3></div><div class="panel-b"><dl class="kv" style="grid-template-columns:110px 1fr">
           <dt>Status</dt><dd>${badge(u.status)}</dd><dt>Senha</dt><dd>${u.has_password ? 'Criada' : '<span class="badge warn">Ainda não criou</span>'}</dd><dt>Último login</dt><dd>${fmtDateTime(u.last_login_at)}</dd><dt>Visto por último</dt><dd>${relTime(u.last_seen_at)}</dd><dt>CPF/CNPJ</dt><dd>${esc(u.document || '—')}</dd>${u.notes ? `<dt>Notas</dt><dd>${esc(u.notes)}</dd>` : ''}</dl></div></div>
         <div class="panel"><div class="panel-h"><h3>E-mails enviados</h3></div><div class="panel-b" style="font-size:13px">${d.notifications.filter((n) => n.channel === 'email').map((n) => `<div style="display:flex;justify-content:space-between;padding:5px 0"><span>${esc({ access: 'Acesso', product_access: 'Novo produto', release: `Liberação ${n.ref.split(':')[1] ? '· aula ' + n.ref.split(':')[1] : ''}`, reset: 'Senha' }[n.kind] || n.kind)}</span><span>${n.status === 'failed' ? `<span class="badge err" title="${esc(n.error)}">falhou</span>` : n.status === 'logged' ? '<span class="badge">modo teste</span>' : '<span class="badge ok">enviado</span>'} <small class="faint">${relTime(n.created_at)}</small></span></div>`).join('') || '<span class="faint">Nenhum.</span>'}</div></div>
@@ -753,7 +753,7 @@ function productModal(p = {}, startTab = 'geral') {
   const img = (target, label, url, hint) => `<div class="field img-field" data-target="${target}"><label>${label}</label><div class="img-box ${target}">${url ? `<img src="${esc(url)}" alt="">` : `<span>${p.id ? 'Nenhuma imagem' : 'Salve o produto para enviar'}</span>`}</div>
     ${p.id ? `<div class="cover-actions"><label class="btn btn-soft btn-sm">${url ? 'Trocar' : 'Enviar imagem'}<input type="file" accept="image/png,image/jpeg,image/webp${target === 'logo' ? ',image/svg+xml' : ''}" hidden></label>${url ? '<button type="button" class="btn btn-ghost btn-sm" data-img-del>Remover</button>' : ''}</div>` : ''}<span class="hint">${hint}</span></div>`;
   modal({ title: p.id ? p.name : 'Novo produto', eyebrow: p.id ? 'Configurar produto' : 'Produto', wide: true, body: `
-    <div class="tabs" id="ptabs"><button type="button" data-t="geral">Geral</button><button type="button" data-t="visual">Identidade visual</button><button type="button" data-t="vitrine">Vitrine e vendas</button></div>
+    <div class="tabs" id="ptabs"><button type="button" data-t="geral">Geral</button><button type="button" data-t="visual">Identidade visual</button><button type="button" data-t="vitrine">Vitrine e vendas</button><button type="button" data-t="bonus">Grátis para alunos${p.unlock_from ? ' <span class="tab-dot"></span>' : ''}</button></div>
     <form id="pf">
     <section data-sec="geral" class="form-grid">
       <div class="full status-bar"><label class="toggle"><input type="checkbox" name="active" ${p.active !== 0 ? 'checked' : ''}><i></i><span data-active-label>${p.active !== 0 ? 'Produto ativo' : 'Produto desativado'}</span></label><span class="hint" style="margin:0">Desativado, o produto some do app dos alunos e novas compras não liberam acesso. O progresso fica guardado.</span></div>
@@ -791,6 +791,31 @@ function productModal(p = {}, startTab = 'geral') {
       <div class="field"><label>Selo do cartão</label><input class="input" name="badge" value="${esc(p.badge)}" maxlength="24" placeholder="Ex.: Novo, Bônus, Mais vendido"><span class="hint">Opcional. Vazio = tipo do produto.</span></div>
       <div class="field"><label>Ordem na vitrine</label><input class="input" name="position" type="number" value="${esc(p.position ?? 0)}"><span class="hint">Menor aparece primeiro.</span></div>
     </section>
+    <section data-sec="bonus" hidden class="form-grid">
+      <div class="full unl-intro"><span class="unl-ico">${ICON_GIFT}</span><div><b>Curso grátis para quem já é aluno</b><p>Libere este produto sem custo para quem já comprou outro. Ótimo para bônus, presentes e para valorizar quem já está na plataforma.</p></div>${p.unlocked ? `<span class="badge ok">${p.unlocked} aluno(s) com acesso</span>` : ''}</div>
+      <label class="toggle full"><input type="checkbox" id="unl-on" ${p.unlock_from ? 'checked' : ''}><i></i><span>Liberar este produto grátis para alunos</span></label>
+      <div class="full unl-body" id="unl-body" ${p.unlock_from ? '' : 'hidden'}>
+        <div class="field"><span class="label">Quem ganha</span>
+          <div class="unl-opts">
+            <label class="unl-opt"><input type="radio" name="unl_who" value="*" ${p.unlock_from === '*' || !p.unlock_from ? 'checked' : ''}><span><b>Todos os alunos da plataforma</b><small>Quem tem qualquer outro produto.</small></span></label>
+            <label class="unl-opt"><input type="radio" name="unl_who" value="some" ${p.unlock_from && p.unlock_from !== '*' ? 'checked' : ''}><span><b>Só quem comprou produtos específicos</b><small>Ex.: quem comprou o curso X ganha este.</small></span></label>
+          </div>
+          <div class="unl-prods" id="unl-prods" ${p.unlock_from && p.unlock_from !== '*' ? '' : 'hidden'}><span class="faint">Carregando produtos…</span></div>
+        </div>
+        <div class="field"><span class="label">Como o aluno recebe</span>
+          <div class="unl-opts">
+            <label class="unl-opt"><input type="radio" name="unlock_mode" value="claim" ${p.unlock_mode !== 'auto' ? 'checked' : ''}><span><b>Oferta em destaque, resgate com um clique</b> <em class="badge gold">Recomendado</em><small>O aluno vê a promessa, o "de R$ … por R$ 0" e o botão para acessar. Valoriza o presente.</small></span></label>
+            <label class="unl-opt"><input type="radio" name="unlock_mode" value="auto" ${p.unlock_mode === 'auto' ? 'checked' : ''}><span><b>Liberar direto na conta</b><small>O produto aparece em "Meus conteúdos" sem precisar resgatar.</small></span></label>
+          </div>
+        </div>
+        <div class="form-grid" id="unl-offer">
+          <div class="field"><label>Preço de referência (de R$)</label><input class="input" name="list_price" inputmode="decimal" value="${p.list_price != null ? esc(String(p.list_price).replace('.', ',')) : ''}" placeholder="97,00"><span class="hint">Aparece riscado: "de R$ 97,00 por R$ 0". Vazio = só "Grátis".</span></div>
+          <div class="field"><label>Texto do botão</label><input class="input" name="offer_cta" value="${esc(p.offer_cta || '')}" maxlength="40" placeholder="Acessar agora, é grátis"></div>
+          <div class="field full"><label>Destaques da oferta <span class="faint">(um por linha, até 6)</span></label><textarea class="input" name="offer_bullets" rows="4" placeholder="7 formas práticas de usar o consórcio&#10;Construa patrimônio e renda passiva&#10;Aulas curtas, direto ao ponto">${esc((p.offer_bullets || []).join('\n'))}</textarea><span class="hint">A promessa principal é a <b>Frase de apoio</b> (aba Geral). Para o visual da oferta, envie a capa e as cores em Identidade visual.</span></div>
+        </div>
+        <p class="hint" style="margin:6px 0 0">Se o aluno pedir reembolso do produto que deu direito, este acesso grátis sai junto. Se ele comprar este produto depois, o acesso passa a valer pela compra.</p>
+      </div>
+    </section>
     ${can('admin') ? '<div style="margin-top:18px;display:flex;gap:8px"><button class="btn btn-primary">Salvar produto</button><button type="button" class="btn btn-ghost" data-close>Cancelar</button></div>' : ''}
     </form>`,
   onMount: (m, close) => {
@@ -827,6 +852,20 @@ function productModal(p = {}, startTab = 'geral') {
     };
     ['kind', 'release_mode', 'active'].forEach((n) => f[n].addEventListener('change', syncRelease));
     syncRelease();
+    // grátis para alunos
+    const unlSel = new Set(p.unlock_from && p.unlock_from !== '*' ? p.unlock_from.split(',').map(Number) : []);
+    const unlSync = () => {
+      m.querySelector('#unl-body').hidden = !m.querySelector('#unl-on').checked;
+      m.querySelector('#unl-prods').hidden = f.unl_who.value !== 'some';
+      m.querySelector('#unl-offer').style.opacity = f.unlock_mode.value === 'auto' ? '.55' : '';
+    };
+    m.querySelector('#unl-on').addEventListener('change', unlSync);
+    m.querySelectorAll('[name=unl_who],[name=unlock_mode]').forEach((x) => x.addEventListener('change', unlSync));
+    unlSync();
+    api('/api/admin/products').then(({ rows }) => {
+      const others = rows.filter((x) => x.id !== p.id);
+      m.querySelector('#unl-prods').innerHTML = others.length ? others.map((x) => `<label class="unl-chk"><input type="checkbox" value="${x.id}" ${unlSel.has(x.id) ? 'checked' : ''}><span>${esc(x.name)}</span>${x.active ? '' : '<small class="faint">desativado</small>'}</label>`).join('') : '<span class="faint">Cadastre outro produto primeiro.</span>';
+    }).catch(() => {});
     // imagens (logo e capa)
     m.querySelectorAll('.img-field').forEach((box) => {
       const target = box.dataset.target;
@@ -853,6 +892,13 @@ function productModal(p = {}, startTab = 'geral') {
       e.preventDefault();
       const fd = Object.fromEntries(new FormData(f));
       fd.active = !!fd.active; fd.show_live = !!fd.show_live; fd.show_in_store = !!fd.show_in_store;
+      if (!m.querySelector('#unl-on').checked) fd.unlock_from = '';
+      else if (fd.unl_who === '*') fd.unlock_from = '*';
+      else {
+        fd.unlock_from = [...m.querySelectorAll('#unl-prods input:checked')].map((x) => x.value).join(',');
+        if (!fd.unlock_from) { toast('Escolha quais produtos dão direito ao acesso grátis.', { error: true }); return; }
+      }
+      delete fd.unl_who;
       fd.theme = theme;
       fd.materials = String(fd.materials || '').split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((x) => x[0]).map(([title, url]) => ({ title, url: url || '' }));
       await withLoading(e.submitter, async () => {
@@ -880,6 +926,7 @@ async function pageProduct(id) {
 }
 
 // ---------- módulos do produto ----------
+const ICON_GIFT = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg>';
 const productModules = () => (Array.isArray(currentProduct?.modules) ? currentProduct.modules : []);
 function moduleOptions(sel) {
   const mods = productModules();

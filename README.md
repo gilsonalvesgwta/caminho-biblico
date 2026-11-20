@@ -138,6 +138,13 @@ Menu **WhatsApp**. Usa a mesma Evolution API do CRM (endereço + chave global, g
 - **Outras despesas:** ferramentas, equipe, contador etc. Única, todo mês ou todo ano (com data de encerramento opcional). A mensal cai todo mês no mesmo dia (dia 31 → último dia dos meses curtos).
 - **Lucro** = faturamento líquido − impostos − marketing − outras despesas.
 
+## 2j. Curso grátis para quem já é aluno
+
+Em Produtos › Configurar produto › **Grátis para alunos**:
+- **Quem ganha:** todos os alunos da plataforma (qualquer outro produto) ou só quem comprou produtos específicos ("comprou X, ganha Y").
+- **Como recebe:** oferta em destaque com resgate em um clique (promessa, destaques, "de R$ 97 por R$ 0", botão) ou liberação direta na conta.
+- Reembolso do produto que deu direito retira o grátis junto; quem compra o produto depois passa a ter pela compra. Acesso removido pela equipe não volta sozinho.
+
 ## 3. Como a liberação funciona
 
 - Pagamento aprovado na Greenn → webhook → cadastro do aluno + inscrição → e-mail com link para criar a senha (vale 72h; depois o aluno usa "Primeiro acesso / esqueci a senha").

@@ -4,7 +4,8 @@ import { createSession, destroySession, requireUser, verifyPassword, hashPasswor
 import { sendEmail, resetEmail, senderName } from './mailer.js';
 import { lastProduct } from './whatsapp.js';
 import { config } from './config.js';
-import { normEmail, jparse, lessonStates, refreshSummary, nextLive, rulesFromSettings, loadAnswers, productPublic } from './services.js';
+import { normEmail, jparse, lessonStates, refreshSummary, nextLive, rulesFromSettings, loadAnswers, productPublic, audit } from './services.js';
+import { syncUnlocks, claimUnlock } from './unlock.js';
 import { emit } from './events.js';
 import { lessonBlocks, loadBlockAnswers, saveBlockAnswer, missingRequired } from './blocks.js';
 
@@ -86,6 +87,9 @@ export function registerAppRoutes(r) {
 
   r.get('/api/app/me', (req) => {
     const u = requireUser(req);
+    // bônus para quem já é aluno: libera os automáticos, retira os que perderam o direito e traz as ofertas de resgate
+    let unlockOffers = [];
+    try { unlockOffers = syncUnlocks(u.id); } catch (e) { console.error('[unlock]', e); }
     const enrollments = db.all(`SELECT e.* FROM enrollments e JOIN products p ON p.id = e.product_id
       WHERE e.user_id = ? AND e.status = 'active' AND p.active = 1 AND (e.expires_at IS NULL OR e.expires_at > ?) ORDER BY p.position, p.id`, u.id, now());
     const owned = new Set();
@@ -94,15 +98,29 @@ export function registerAppRoutes(r) {
       owned.add(product.id);
       const lessons = db.all('SELECT * FROM lessons WHERE product_id = ? AND published = 1 ORDER BY number', e.product_id);
       const states = lessonStates(u.id, product, e, lessons);
-      return { ...productPublic(product), startedAt: e.started_at, expiresAt: e.expires_at,
+      return { ...productPublic(product), startedAt: e.started_at, expiresAt: e.expires_at, gift: e.source === 'unlock',
         releaseMode: product.release_mode, releaseDelayHours: product.release_delay_hours,
         hasActivities: lessons.some((l) => l.activity_key),
         lessons: lessons.map((l, i) => ({ ...lessonOut(l), ...states[i] })) };
     });
     // Vitrine: produtos que o aluno ainda não tem, marcados para aparecer
-    const store = db.all('SELECT * FROM products WHERE active = 1 AND show_in_store = 1 ORDER BY position, id').filter((p) => !owned.has(p.id))
-      .map((p) => ({ ...productPublic(p), salesUrl: p.sales_url, materials: undefined, lessonsCount: db.get('SELECT COUNT(*) c FROM lessons WHERE product_id = ? AND published = 1', p.id).c }));
-    return { user: { id: u.id, name: u.name, email: u.email, phone: u.phone }, settings: publicSettings(), products, store, live: nextLive() };
+    const lessonsCount = (id) => db.get('SELECT COUNT(*) c FROM lessons WHERE product_id = ? AND published = 1', id).c;
+    const offers = unlockOffers.filter((o) => !owned.has(o.product.id)).map(({ product: p, via }) => ({ ...productPublic(p), materials: undefined, lessonsCount: lessonsCount(p.id),
+      listPrice: p.list_price, offerCta: p.offer_cta, bullets: jparse(p.offer_bullets, []), via: via.short_name || via.name }));
+    const offerIds = new Set(unlockOffers.map((o) => o.product.id));
+    const store = db.all('SELECT * FROM products WHERE active = 1 AND show_in_store = 1 ORDER BY position, id').filter((p) => !owned.has(p.id) && !offerIds.has(p.id))
+      .map((p) => ({ ...productPublic(p), salesUrl: p.sales_url, materials: undefined, lessonsCount: lessonsCount(p.id) }));
+    return { user: { id: u.id, name: u.name, email: u.email, phone: u.phone }, settings: publicSettings(), products, store, offers, live: nextLive() };
+  });
+
+  // Resgatar curso grátis ("Acessar agora")
+  r.post('/api/app/unlock/:slug', (req) => {
+    const u = requireUser(req);
+    rateLimit(`unlock:${u.id}`, 20, 60e3);
+    const r0 = claimUnlock(u.id, String(req.params.slug || ''));
+    if (!r0.ok) fail(r0.status, r0.error);
+    if (!r0.already) audit(req, 'unlock.claim', u.id, { product: r0.slug, via: r0.via });
+    return r0;
   });
 
   r.get('/api/app/p/:slug/day/:n', (req) => {

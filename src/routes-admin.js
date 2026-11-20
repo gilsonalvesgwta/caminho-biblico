@@ -3,6 +3,7 @@ import { fail, rateLimit } from './http.js';
 import { config } from './config.js';
 import { createSession, destroySession, requireAdmin, verifyPassword, hashPassword, validatePassword, randomToken } from './auth.js';
 import { upsertUser, grantAccess, revokeAccess, sendAccessEmail, sendProductAccessEmail, normEmail, isEmail, jparse, lessonStates, loadAnswers, refreshSummary, nextLive, audit, rulesFromSettings } from './services.js';
+import { normalizeUnlockFrom } from './unlock.js';
 import { reprocessWebhook, handleWebhook } from './greenn.js';
 import { sendEmail, emailLayout } from './mailer.js';
 import { flushOutbox } from './events.js';
@@ -485,11 +486,12 @@ export function registerAdminRoutes(r) {
   // ---------- produtos e conteúdo ----------
   r.get('/api/admin/products', (req) => {
     requireAdmin(req);
-    return { rows: db.all(`SELECT p.*, (SELECT COUNT(*) FROM lessons l WHERE l.product_id = p.id) lessons, (SELECT COUNT(*) FROM enrollments e WHERE e.product_id = p.id AND e.status = 'active' AND (e.expires_at IS NULL OR e.expires_at > datetime('now'))) students FROM products p ORDER BY position, id`).map((p) => ({ ...p, materials: jparse(p.materials, []), theme_obj: jparse(p.theme, {}), modules: jparse(p.modules, []) })) };
+    return { rows: db.all(`SELECT p.*, (SELECT COUNT(*) FROM lessons l WHERE l.product_id = p.id) lessons, (SELECT COUNT(*) FROM enrollments e WHERE e.product_id = p.id AND e.status = 'active' AND (e.expires_at IS NULL OR e.expires_at > datetime('now'))) students FROM products p ORDER BY position, id`).map((p) => ({ ...p, materials: jparse(p.materials, []), theme_obj: jparse(p.theme, {}), modules: jparse(p.modules, []), offer_bullets: jparse(p.offer_bullets, []), unlocked: p.unlock_from ? db.get("SELECT COUNT(*) c FROM enrollments WHERE product_id = ? AND source = 'unlock' AND status = 'active'", p.id).c : 0 })) };
   });
   // Campos do produto (identidade visual incluída). Ordem = colunas de PRODUCT_COLS.
   const PRODUCT_COLS = ['slug', 'name', 'kind', 'tagline', 'description', 'greenn_ids', 'release_mode', 'release_delay_hours', 'access_days', 'materials', 'position', 'active',
-    'theme', 'short_name', 'mentor', 'unit_label', 'show_live', 'sales_url', 'show_in_store', 'badge', 'watch_note', 'quotes_title', 'points_title'];
+    'theme', 'short_name', 'mentor', 'unit_label', 'show_live', 'sales_url', 'show_in_store', 'badge', 'watch_note', 'quotes_title', 'points_title',
+    'unlock_from', 'unlock_mode', 'list_price', 'offer_cta', 'offer_bullets'];
   const HEX = /^#[0-9a-f]{6}$/i;
   const productFields = (b, cur = {}) => {
     const pick = (k, d = '') => (b[k] !== undefined ? b[k] : cur[k] !== undefined && cur[k] !== null ? cur[k] : d);
@@ -505,12 +507,21 @@ export function registerAdminRoutes(r) {
     const salesUrl = String(pick('sales_url') || '').trim();
     if (salesUrl && !/^https?:\/\/\S+$/i.test(salesUrl)) fail(400, 'O link da página de vendas precisa começar com https://');
     const accessDays = b.access_days === '' || b.access_days === null ? null : Number(pick('access_days', null)) || null;
+    // curso grátis para quem já é aluno
+    const unlockFrom = normalizeUnlockFrom(pick('unlock_from', ''));
+    const unlockMode = ['claim', 'auto'].includes(pick('unlock_mode', 'claim')) ? pick('unlock_mode', 'claim') : 'claim';
+    const lp = b.list_price === '' || b.list_price === null ? null : b.list_price !== undefined ? Number(String(b.list_price).replace(/\./g, '').replace(',', '.')) : cur.list_price ?? null;
+    if (lp !== null && (!Number.isFinite(lp) || lp < 0 || lp > 1e6)) fail(400, 'Preço de referência inválido.');
+    let bullets = b.offer_bullets !== undefined ? b.offer_bullets : jparse(cur.offer_bullets, []);
+    if (typeof bullets === 'string') bullets = bullets.split('\n');
+    bullets = (Array.isArray(bullets) ? bullets : []).map((x) => String(x).replace(/^[\s•\-–*✓]+/, '').trim().slice(0, 120)).filter(Boolean).slice(0, 6);
     return [slug, String(pick('name')).trim(), pick('kind', 'challenge'), pick('tagline'), pick('description'),
       String(pick('greenn_ids')).split(/[\s,;]+/).filter(Boolean).join(','), pick('release_mode', 'after_complete'),
       Number(pick('release_delay_hours', 24)), accessDays, JSON.stringify(b.materials ?? jparse(cur.materials, [])), Number(pick('position', 0)), bool('active', 1),
       JSON.stringify(theme), String(pick('short_name') || '').trim() || null, String(pick('mentor') || '').trim() || null, String(pick('unit_label', 'Dia') || 'Dia').trim().slice(0, 20),
       bool('show_live', 0), salesUrl || null, bool('show_in_store', 0), String(pick('badge') || '').trim().slice(0, 24) || null, String(pick('watch_note') || '').trim().slice(0, 300) || null,
-      String(pick('quotes_title') || '').trim().slice(0, 60) || null, String(pick('points_title') || '').trim().slice(0, 60) || null];
+      String(pick('quotes_title') || '').trim().slice(0, 60) || null, String(pick('points_title') || '').trim().slice(0, 60) || null,
+      unlockFrom, unlockMode, lp, String(pick('offer_cta') || '').trim().slice(0, 40) || null, JSON.stringify(bullets)];
   };
   r.post('/api/admin/products', (req) => {
     requireAdmin(req, 'admin');

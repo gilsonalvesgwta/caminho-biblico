@@ -512,6 +512,63 @@ try {
   assert.equal((await call('user', 'PUT', `/api/admin/products/${prodM.id}/modules`, { modules: [] })).status, 401);
   step('módulos: cadastro, renomear em todas as aulas, remover e nunca ficar nome solto');
 
+  // curso grátis para quem já é aluno
+  const desafioId = (await call('admin', 'GET', '/api/admin/products')).json.rows.find((x) => x.slug === 'desafio-7-dias').id;
+  const yId = (await call('admin', 'POST', '/api/admin/products', { slug: 'enriqueca-com-credito', name: 'Enriqueça com Crédito', kind: 'course', unit_label: 'Aula', release_mode: 'open',
+    tagline: 'Aprenda as 7 formas de usar o consórcio para construir patrimônio e renda passiva.', unlock_from: '*', unlock_mode: 'claim', list_price: '97,00', offer_cta: 'Acessar agora', offer_bullets: '• 7 formas de lucrar\n\nPatrimônio e renda passiva', show_in_store: true })).json.id;
+  const yAdm = (await call('admin', 'GET', '/api/admin/products')).json.rows.find((x) => x.id === yId);
+  assert.equal(yAdm.list_price, 97); assert.deepEqual(yAdm.offer_bullets, ['7 formas de lucrar', 'Patrimônio e renda passiva']); assert.equal(yAdm.unlock_from, '*');
+  await call('admin', 'POST', `/api/admin/products/${yId}/lessons`, { title: 'Forma 1', published: 1 });
+  const buyX = (id, st = 'paid') => call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: st, product: { id: 12345, name: 'Desafio' }, sale: { id, amount: 27, method: 'PIX' }, client: { name: 'Bia Bônus', email: 'bia@teste.com' } });
+  await buyX(9800);
+  const bia = (await call('admin', 'GET', '/api/admin/students?q=bia@teste.com')).json.rows[0];
+  const biaTok = (await call('admin', 'POST', `/api/admin/students/${bia.id}/send-access`, {})).json.link.split('t=')[1];
+  assert.equal((await call('bia', 'POST', '/api/app/token/consume', { token: biaTok, password: 'bia-123456' })).status, 200);
+  let mb = (await call('bia', 'GET', '/api/app/me')).json;
+  assert.equal(mb.offers.length, 1, 'oferta para quem já é aluno'); const of = mb.offers[0];
+  assert.equal(of.slug, 'enriqueca-com-credito'); assert.equal(of.listPrice, 97); assert.ok(of.via, 'mostra o produto que deu direito'); assert.equal(of.lessonsCount, 1);
+  assert.ok(!mb.store.some((x) => x.slug === 'enriqueca-com-credito'), 'oferta não repete em "Conheça também"');
+  assert.ok(!mb.products.some((x) => x.slug === 'enriqueca-com-credito'));
+  // quem não é aluno de nada não resgata
+  assert.equal((await call('x', 'POST', '/api/app/unlock/enriqueca-com-credito')).status, 401);
+  const cl = (await call('bia', 'POST', '/api/app/unlock/enriqueca-com-credito')).json;
+  assert.equal(cl.ok, true); assert.equal((await call('bia', 'POST', '/api/app/unlock/enriqueca-com-credito')).json.already, true, 'resgate repetido não quebra');
+  mb = (await call('bia', 'GET', '/api/app/me')).json;
+  assert.ok(mb.products.some((x) => x.slug === 'enriqueca-com-credito') && !mb.offers.length, 'resgatado: vai para Meus conteúdos');
+  assert.equal((await call('admin', 'GET', `/api/admin/students/${bia.id}`)).json.enrollments.find((e) => e.product_id === yId).source, 'unlock');
+  // reembolso do produto que deu direito: o grátis sai junto; comprou de novo: volta a oferta
+  await buyX(9800, 'refunded');
+  mb = (await call('bia', 'GET', '/api/app/me')).json;
+  assert.ok(!mb.products.some((x) => x.slug === 'enriqueca-com-credito') && !mb.offers.length, 'reembolso tira o bônus');
+  await buyX(9801);
+  mb = (await call('bia', 'GET', '/api/app/me')).json;
+  assert.equal(mb.offers.length, 1, 'nova compra: oferta de volta');
+  await call('bia', 'POST', '/api/app/unlock/enriqueca-com-credito');
+  // equipe removeu o acesso: não volta sozinho nem aparece a oferta
+  await call('admin', 'POST', `/api/admin/students/${bia.id}/revoke`, { product_id: yId });
+  mb = (await call('bia', 'GET', '/api/app/me')).json;
+  assert.ok(!mb.offers.length && !mb.products.some((x) => x.slug === 'enriqueca-com-credito'), 'removido pela equipe não volta');
+  assert.equal((await call('bia', 'POST', '/api/app/unlock/enriqueca-com-credito')).status, 403);
+  await call('admin', 'POST', `/api/admin/students/${bia.id}/grant`, { product_id: yId });
+  // regra por produto específico (que a aluna não tem) + modo automático
+  await call('admin', 'POST', `/api/admin/students/${bia.id}/revoke`, { product_id: yId });
+  await call('admin', 'PUT', `/api/admin/products/${yId}`, { unlock_from: '999999', unlock_mode: 'auto' });
+  assert.equal((await call('admin', 'GET', '/api/admin/products')).json.rows.find((x) => x.id === yId).unlock_from, '999999');
+  const zId = (await call('admin', 'POST', '/api/admin/products', { slug: 'bonus-auto', name: 'Bônus Automático', kind: 'course', unlock_from: [desafioId], unlock_mode: 'auto' })).json.id;
+  mb = (await call('bia', 'GET', '/api/app/me')).json;
+  assert.ok(mb.products.some((x) => x.slug === 'bonus-auto'), 'modo automático: entra direto na conta');
+  assert.ok(!mb.offers.some((x) => x.slug === 'enriqueca-com-credito'), 'regra de produto específico respeitada');
+  // comprou o produto que tinha ganhado: passa a valer pela compra (reembolso do outro não tira)
+  await call('admin', 'PUT', `/api/admin/products/${zId}`, { greenn_ids: '55501' });
+  await call('x', 'POST', hook, { type: 'sale', event: 'saleUpdated', currentStatus: 'paid', product: { id: 55501, name: 'Bônus' }, sale: { id: 9802, amount: 47, method: 'PIX' }, client: { name: 'Bia Bônus', email: 'bia@teste.com' } });
+  assert.equal((await call('admin', 'GET', `/api/admin/students/${bia.id}`)).json.enrollments.find((e) => e.product_id === zId).source, 'greenn');
+  await buyX(9801, 'refunded');
+  mb = (await call('bia', 'GET', '/api/app/me')).json;
+  assert.ok(mb.products.some((x) => x.slug === 'bonus-auto'), 'comprado continua mesmo com reembolso do outro');
+  await call('admin', 'PUT', `/api/admin/products/${yId}`, { active: false });
+  await call('admin', 'PUT', `/api/admin/products/${zId}`, { active: false });
+  step('curso grátis para alunos: oferta, resgate, reembolso, remoção pela equipe, regra por produto e automático');
+
   for (const p of ['/', '/login', '/admin', '/app.js', '/admin/admin.js', '/shared/calc.js', '/shared/player.js', '/shared/player.css', '/shared/pcard.js', '/shared/pcard.css', '/shared/pdfviewer.js', '/shared/pdfjs/pdf.min.mjs', '/shared/pdfjs/pdf.worker.min.mjs', '/shared/pdfjs/standard_fonts/FoxitSerif.pfb', '/manifest.webmanifest', '/sw.js']) assert.equal((await fetch(BASE + p)).status, 200, p);
   assert.match((await fetch(BASE + '/shared/pdfjs/pdf.min.mjs')).headers.get('content-type'), /javascript/, 'módulo do leitor de PDF com tipo certo');
   step('arquivos do app e do painel');

@@ -1,6 +1,7 @@
 import { db, now } from './db.js';
 import { requestSaleSync } from './meta.js';
 import { upsertUser, grantAccess, revokeAccess, sendAccessEmail, sendProductAccessEmail, normEmail, isEmail } from './services.js';
+import { syncUnlocks } from './unlock.js';
 import { emit } from './events.js';
 
 /**
@@ -121,6 +122,8 @@ export async function reprocessWebhook(id) {
   let result;
   try { result = await processGreennEvent(JSON.parse(ev.payload)); }
   catch (e) { result = { outcome: 'error', message: String(e.message || e) }; console.error('[greenn]', e); }
+  // compra ou reembolso muda o direito aos cursos grátis (bônus para alunos)
+  if (result.userId) { try { syncUnlocks(result.userId); } catch (e) { console.error('[unlock]', e); } }
   db.run('UPDATE webhook_events SET outcome = ?, message = ?, attempts = attempts + 1, processed_at = ? WHERE id = ?', result.outcome, result.message, now(), id);
   return { id, ...result };
 }
