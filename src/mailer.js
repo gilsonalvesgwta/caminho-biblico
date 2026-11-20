@@ -159,6 +159,13 @@ async function sendSmtp(s, from, to, subject, html, text) {
 }
 
 // ---------- modelos ----------
+// "pelo Dia 1" / "pela Aula 1" / "pelo Módulo 1", conforme o nome da unidade do produto
+const FEM_UNITS = new Set(['aula', 'lição', 'licao', 'semana', 'etapa', 'fase', 'parte', 'sessão', 'sessao', 'live', 'jornada', 'trilha']);
+function startWith(product) {
+  if (product?.kind === 'bonus') return 'pelos materiais';
+  const unit = product?.unit_label || 'Dia';
+  return `${FEM_UNITS.has(unit.toLowerCase()) ? 'pela' : 'pelo'} ${unit} 1`;
+}
 export function accessEmail({ name, link, isNew, product }) {
   const s = getSettings();
   const first = (name || '').split(' ')[0] || 'olá';
@@ -166,8 +173,8 @@ export function accessEmail({ name, link, isNew, product }) {
   return {
     subject: isNew ? `Seu acesso chegou: ${title}` : `Seu link de acesso: ${title}`,
     html: emailLayout({
-      preheader: 'Crie sua senha e comece hoje pelo Dia 1.',
-      heading: isNew ? `${esc(first)}, o seu desafio começa hoje.` : `${esc(first)}, aqui está o seu acesso.`,
+      preheader: `Crie sua senha e comece agora ${startWith(product)}.`,
+      heading: isNew ? `${esc(first)}, ${{ course: 'o seu curso começa agora.', bonus: 'o seu acesso chegou.' }[product?.kind] || 'o seu desafio começa hoje.'}` : `${esc(first)}, aqui está o seu acesso.`,
       paragraphs: [
         isNew ? (product ? `Que alegria ter você aqui. A sua inscrição em <b>${esc(product.name)}</b> foi confirmada e o primeiro conteúdo já está liberado.` : 'Que alegria ter você aqui. A sua inscrição foi confirmada e o Dia 1 já está liberado.') : 'Use o botão abaixo para entrar e definir a sua senha.',
         'Clique no botão, crie a sua senha e salve o app na tela inicial do seu celular para acessar com um toque.',

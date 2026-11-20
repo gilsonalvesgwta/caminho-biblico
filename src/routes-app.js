@@ -127,7 +127,7 @@ export function registerAppRoutes(r) {
     const u = requireUser(req);
     const { product, lessons, states } = loadEnrollment(u.id, req.params.slug);
     const i = lessons.findIndex((l) => l.number === Number(req.params.n));
-    if (i < 0) fail(404, 'Dia não encontrado.');
+    if (i < 0) fail(404, 'Conteúdo não encontrado.');
     const st = states[i];
     if (!st.available) return { locked: true, product: { slug: product.slug, unitLabel: product.unit_label || 'Dia', total: lessons.length }, lesson: lessonOut(lessons[i]), state: st };
     const meta = { slug: product.slug, unitLabel: product.unit_label || 'Dia', total: lessons.length, releaseMode: product.release_mode, quotesTitle: product.quotes_title || 'Para refletir', pointsTitle: product.points_title || 'Para lembrar' };
